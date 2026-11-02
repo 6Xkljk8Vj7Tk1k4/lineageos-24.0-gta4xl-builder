@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Add wpa_supplicant_lib to soong namespaces
+
+lib_driver_cmd_slsi lives in its own soong namespace on lineage-24.0,
+so wpa_supplicant and hostapd can't resolve
+BOARD_WPA_SUPPLICANT_PRIVATE_LIB unless the namespace is exported.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I6c2e5bbbecab56686d31fcb14774307dc8c7b87b
+---
+ common.mk | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/common.mk b/common.mk
+index 64f6db4..1d3499d 100644
+--- a/common.mk
++++ b/common.mk
+@@ -237,7 +237,8 @@ PRODUCT_SOONG_NAMESPACES += \
+     hardware/samsung \
+     hardware/samsung_slsi-linaro/exynos/libaudio/audiohal \
+     hardware/samsung_slsi-linaro/exynos/gralloc/gralloc3 \
+-    hardware/samsung_slsi/libbt
++    hardware/samsung_slsi/libbt \
++    hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib
+ 
+ # Task profiles
+ PRODUCT_COPY_FILES += \

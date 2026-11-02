@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Set legacy gralloc flag
+
+Gralloc here is allocator/mapper 2.x (gralloc3), there is no gralloc 4
+or newer.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I370dd20cdf35400f4dce9e82ad55368fdaaf9ec4
+---
+ common.mk | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/common.mk b/common.mk
+index 79cb436..3cf8f6e 100644
+--- a/common.mk
++++ b/common.mk
+@@ -84,6 +84,8 @@ PRODUCT_PACKAGES += \
+     android.hardware.composer.hwc3-service.slsi \
+     gralloc.universal9611
+ 
++$(call soong_config_set_bool,libui,legacy_gralloc,true)
++
+ # Dynamic Partitions
+ PRODUCT_USE_DYNAMIC_PARTITIONS := true
+ 

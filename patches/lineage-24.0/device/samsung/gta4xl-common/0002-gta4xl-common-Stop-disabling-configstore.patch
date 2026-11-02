@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Stop disabling configstore
+
+ConfigStore is gone as of CP2A (hardware/interfaces/configstore no
+longer exists), so disable_configstore can't be found anymore.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: Id8f1f18b76b9220ab7d7b5a83b36b2465700f645
+---
+ common.mk | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/common.mk b/common.mk
+index 1d3499d..6c0c1af 100644
+--- a/common.mk
++++ b/common.mk
+@@ -74,10 +74,6 @@ PRODUCT_PACKAGES += \
+ PRODUCT_PACKAGES += \
+     charger_res_images_vendor
+ 
+-# ConfigStore
+-PRODUCT_PACKAGES += \
+-    disable_configstore
+-
+ # Display
+ PRODUCT_PACKAGES += \
+     android.hardware.graphics.allocator@2.0-impl:64 \

@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:52:31 +0000
+Subject: [PATCH] gta4xl-common: Update included pixel soong namespaces
+
+hardware/google/pixel is split into per-component soong namespaces on
+lineage-24.0, so android.hardware.power-service.pixel-libperfmgr,
+android.hardware.thermal-service.pixel and thermal_symlinks are no
+longer visible through the top-level one. thermal imports pixelstats.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: If0bafd22b2ce2bb067d9984e49b0ba9f2d900463
+---
+ common.mk | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/common.mk b/common.mk
+index 3cf8f6e..34f5da2 100644
+--- a/common.mk
++++ b/common.mk
+@@ -229,7 +229,9 @@ PRODUCT_PACKAGES += \
+ PRODUCT_SOONG_NAMESPACES += \
+     $(COMMON_PATH) \
+     hardware/google/interfaces \
+-    hardware/google/pixel \
++    hardware/google/pixel/pixelstats \
++    hardware/google/pixel/power-libperfmgr \
++    hardware/google/pixel/thermal \
+     hardware/samsung \
+     hardware/samsung_slsi-linaro/exynos/libaudio/audiohal \
+     hardware/samsung_slsi-linaro/exynos/gralloc/gralloc3 \

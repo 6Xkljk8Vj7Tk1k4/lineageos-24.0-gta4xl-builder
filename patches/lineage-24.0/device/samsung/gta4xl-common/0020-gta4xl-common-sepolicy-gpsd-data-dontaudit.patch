@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 18:48:00 +0100
+Subject: [PATCH] gta4xl-common: sepolicy: Don't audit gpsd probing /data/data
+
+At start-up (between "GNSS SW 30 ..." and "GNSS Initialization
+Successful") the Broadcom gpsd blob fstatat()s
+/data/data/com.android.spotgnss/spotgnss.conf and
+/data/data/com.android.spotlogger/shared_prefs/com.android.spotlogger_preferences.xml
+to see whether the SPOT GNSS/logger debug tools are installed
+("IsSPOTLoggerInstalled", "No SPOTLogger, No debug"). They never are on
+LineageOS, and the probe is denied at the /data/data directory:
+
+  avc: denied { search } for comm="gpsd" name="data" dev="dm-44" ino=322
+  scontext=u:r:gpsd:s0 tcontext=u:object_r:system_data_file:s0:c512,c768
+  tclass=dir permissive=0
+
+This is not a missing TE rule - system/sepolicy/private/domain.te
+grants every domain system_data_file:dir search - but the MLS
+constraint on dir { read getattr search } (private/mls): gpsd runs at
+s0 and the per-user app-data root /data/user/0 (= /data/data) carries
+the user-0 categories, and gpsd is neither mlstrustedsubject nor
+mlsvendorcompat. gpsd logs "No SPOTLogger, No debug" and carries on;
+there is no user-visible effect, the real GNSS data dir
+/data/vendor/gps (gps_vendor_data_file) is fully accessible.
+
+Silence it the way AOSP does for hal_drm and virtual_camera and this
+tree does for bootanim, instead of making gpsd mlstrustedsubject for a
+file that does not exist.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ sepolicy/vendor/gpsd.te | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/sepolicy/vendor/gpsd.te b/sepolicy/vendor/gpsd.te
+index 2918872..781ede7 100644
+--- a/sepolicy/vendor/gpsd.te
++++ b/sepolicy/vendor/gpsd.te
+@@ -15,3 +15,8 @@ get_prop(gpsd, bootanim_system_prop);
+ 
+ binder_call(gpsd, servicemanager)
+ allow gpsd hal_system_suspend_service:service_manager find;
++
++# gpsd stats /data/data/com.android.spotgnss/spotgnss.conf and
++# /data/data/com.android.spotlogger/... (Broadcom SPOT debug tools, never
++# installed) at every start; MLS denies searching /data/data (s0:c512,c768)
++dontaudit gpsd system_data_file:dir search;

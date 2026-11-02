@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Set FCM level to 7
+
+Android 17 no longer ships compatibility_matrix.6.xml, the lowest
+framework compatibility matrix is level 7.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I92adfe0da9ab0d6f1eb6c5639075db3a97e895a4
+---
+ manifest.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/manifest.xml b/manifest.xml
+index 0139bd9..fac5966 100644
+--- a/manifest.xml
++++ b/manifest.xml
+@@ -1,4 +1,4 @@
+-<manifest version="1.0" type="device" target-level="6">
++<manifest version="1.0" type="device" target-level="7">
+     <kernel target-level="legacy"/>
+     <hal format="hidl">
+         <name>android.hardware.audio</name>

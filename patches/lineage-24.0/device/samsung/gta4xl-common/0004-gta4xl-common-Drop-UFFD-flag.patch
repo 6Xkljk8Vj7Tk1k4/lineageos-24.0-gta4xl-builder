@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Drop UFFD flag
+
+lineage-24.0 enables PRODUCT_ENABLE_UFFD_GC by default
+(Ibb2c5e9191744f6e15f6bced337ba7d0ed9681ca).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I6c147632bf8f7281735fd44691cd0b4f3d18c709
+---
+ common.mk | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/common.mk b/common.mk
+index cc0abdc..3bd023a 100644
+--- a/common.mk
++++ b/common.mk
+@@ -121,7 +121,6 @@ PRODUCT_COPY_FILES += \
+ # Kernel
+ PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS := false
+ PRODUCT_SET_DEBUGFS_RESTRICTIONS := true
+-PRODUCT_ENABLE_UFFD_GC := true
+ 
+ # Keylayout
+ PRODUCT_COPY_FILES += \

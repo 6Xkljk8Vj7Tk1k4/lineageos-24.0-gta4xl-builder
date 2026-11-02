@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Wed, 21 Oct 2026 01:53:11 +0000
+Subject: [PATCH] gta4xl-common: Don't set kernel FCM level in manifest
+
+assemble_vintf rejects an explicit kernel level with device FCM
+target-level 7: "Device manifest with target-level 7 must not
+explicitly set kernel level in the manifest file".
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I916f561bf91d45cfb21f01d8104c55d2105ff957
+---
+ manifest.xml | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/manifest.xml b/manifest.xml
+index fac5966..9fafa75 100644
+--- a/manifest.xml
++++ b/manifest.xml
+@@ -1,5 +1,4 @@
+ <manifest version="1.0" type="device" target-level="7">
+-    <kernel target-level="legacy"/>
+     <hal format="hidl">
+         <name>android.hardware.audio</name>
+         <transport>hwbinder</transport>

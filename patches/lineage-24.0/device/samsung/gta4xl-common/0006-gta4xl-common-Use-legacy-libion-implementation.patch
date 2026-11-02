@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Use legacy libion implementation
+
+The 4.14 kernel only has legacy ION (CONFIG_ION=y, no DMA-BUF heaps)
+and vendor blobs talk to it directly.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: Id8c8089d45ada92fbb6b58effcf9c6fea627dcb6
+---
+ BoardConfigCommon.mk | 1 +
+ common.mk            | 3 +++
+ 2 files changed, 4 insertions(+)
+
+diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
+index 0b75a1f..5885840 100644
+--- a/BoardConfigCommon.mk
++++ b/BoardConfigCommon.mk
+@@ -163,6 +163,7 @@ VENDOR_SECURITY_PATCH := 2024-05-01
+ ## SELinux
+ BOARD_SEPOLICY_TEE_FLAVOR := teegris
+ include device/lineage/sepolicy/exynos/sepolicy.mk
++include device/lineage/sepolicy/libion/sepolicy.mk
+ include device/samsung_slsi/sepolicy/sepolicy.mk
+ 
+ BOARD_VENDOR_SEPOLICY_DIRS += $(COMMON_PATH)/sepolicy/vendor
+diff --git a/common.mk b/common.mk
+index 3bd023a..79cb436 100644
+--- a/common.mk
++++ b/common.mk
+@@ -118,6 +118,9 @@ PRODUCT_COPY_FILES += \
+     $(COMMON_PATH)/configs/init/init.stune.rc:$(TARGET_COPY_OUT_VENDOR)/etc/init/init.stune.rc \
+     $(COMMON_PATH)/configs/init/ueventd.rc:$(TARGET_COPY_OUT_VENDOR)/etc/ueventd.rc
+ 
++# ION
++$(call soong_config_set_bool,libion,legacy_impl,true)
++
+ # Kernel
+ PRODUCT_OTA_ENFORCE_VINTF_KERNEL_REQUIREMENTS := false
+ PRODUCT_SET_DEBUGFS_RESTRICTIONS := true

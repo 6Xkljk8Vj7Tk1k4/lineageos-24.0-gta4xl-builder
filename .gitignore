@@ -1,0 +1,21 @@
+# Synced LineageOS source tree, build output and compiler cache (hundreds of GB)
+/src/
+/ccache/
+/out/
+# Samsung's proprietary files, fetched by tools/fetch-blobs.sh; never committed
+/vendor_blobs/
+# Kernel fork clone (tools/kernel-build.sh) and the output of the other tools
+/kernel/
+/build_output/
+# Release files stay local; they go to GitHub Releases, not into git
+/release/
+# Never commit signing keys (tools/make-keys.sh writes them to signing/) or build artifacts
+/signing/
+keys/
+*.pk8
+*.pem
+*.img
+*.zip
+*.tar
+*.tar.md5
+*.xz

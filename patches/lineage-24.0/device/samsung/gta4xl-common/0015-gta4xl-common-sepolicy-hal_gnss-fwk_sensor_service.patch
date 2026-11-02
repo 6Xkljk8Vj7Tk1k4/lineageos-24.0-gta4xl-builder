@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 18:48:00 +0100
+Subject: [PATCH] gta4xl-common: sepolicy: Let the GNSS HAL find the sensor
+ service
+
+Samsung's GNSS HAL (vendor.samsung.hardware.gnss@2.0-service, loading
+android.hardware.gnss@2.1-impl.so) dlopens libsensorndkbridge and calls
+ASensorManager_getInstanceForPackage() to feed accelerometer/gyro data
+to the GNSS firmware ("TGT_MEMS", gps.cfg: GlueLayer_IsMemsEnable=1,
+Chip_Configuration_mems_data_Configuration=1 - MEMS static detection
+and gyro heading estimation). Since Android 15 the bridge talks to the
+AIDL android.frameworks.sensorservice.ISensorManager/default, which is
+fwk_sensor_service, and nothing allows the HAL to find it:
+
+  avc: denied { find } for pid=5426 uid=1000
+  name=android.frameworks.sensorservice.ISensorManager/default
+  scontext=u:r:hal_gnss_default:s0 tcontext=u:object_r:fwk_sensor_service:s0
+  tclass=service_manager permissive=0
+
+AServiceManager_waitForService() then fails (registerForNotifications
+is refused as well), the HAL gets no ASensorManager and the MEMS
+assistance silently stays off. Positioning itself keeps working; the
+denial was already present on the lineage-23.2 baseline.
+
+Add the same rule AOSP uses for hal_audio_default and hal_camera_default
+("android.frameworks.sensorservice through libsensorndkbridge") and
+Qualcomm's location daemons. Binder calls to/from system_server are
+already covered by hal_gnss_client/hal_gnss_server.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ sepolicy/vendor/hal_gnss_default.te | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/sepolicy/vendor/hal_gnss_default.te b/sepolicy/vendor/hal_gnss_default.te
+index 6106c89..8c0d831 100644
+--- a/sepolicy/vendor/hal_gnss_default.te
++++ b/sepolicy/vendor/hal_gnss_default.te
+@@ -1 +1,5 @@
+ allow hal_gnss_default gpsd:unix_stream_socket connectto;
++
++# android.frameworks.sensorservice through libsensorndkbridge
++# (android.hardware.gnss@2.1-impl.so, MEMS-assisted positioning)
++allow hal_gnss_default fwk_sensor_service:service_manager find;

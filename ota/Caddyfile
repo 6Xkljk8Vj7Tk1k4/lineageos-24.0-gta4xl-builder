@@ -1,0 +1,19 @@
+# Example update server backend: plain HTTP on port 8099, serving the folder that
+# tools/ota-upload.sh fills. Put it behind a reverse proxy that terminates TLS for your domain
+# (the Updater only accepts https) - this Caddy never talks to the internet directly.
+#
+# Layout of /srv/ota:
+#   /srv/ota/gta4xl/lineage-*.zip (+ .sha256)
+#   /srv/ota/api/v1/gta4xl/<type>/index.json
+
+:8099 {
+	# Android's connectivity check (CAPTIVE_PORTAL_HOST in build.sh): a bare 204, no body, no
+	# redirect. The proxy in front must pass /generate_204 through on http AND https without
+	# redirecting http to https, otherwise every Wi-Fi network looks like a captive portal.
+	respond /generate_204 204
+
+	root * /srv/ota
+	file_server {
+		index index.json
+	}
+}

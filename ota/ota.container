@@ -1,0 +1,37 @@
+# Example Quadlet unit for rootless Podman (podman >= 4.4) running ota/Caddyfile as an
+# unprivileged user; everything lives in that user's $HOME.
+#
+# Installation, logged in as that user:
+#   mkdir -p ~/.config/containers/systemd ~/ota
+#   cp ota/Caddyfile ~/Caddyfile
+#   cp ota/ota.container ~/.config/containers/systemd/ota.container
+#   loginctl enable-linger "$(whoami)"   # keeps the service running without a login session
+#   systemctl --user daemon-reload
+#   systemctl --user start ota.service
+#
+# `systemctl --user enable ota.service` does not work: the unit is generated from this file
+# at every daemon-reload. Autostart after a reboot comes from WantedBy=default.target below
+# together with enable-linger.
+#
+# Status: systemctl --user status ota.service
+# Logs:   journalctl --user -u ota.service -f
+
+[Unit]
+Description=LineageOS update server (static files) behind a TLS reverse proxy
+After=network-online.target
+
+[Container]
+Image=docker.io/library/caddy:2-alpine
+ContainerName=lineageos-ota
+# Loopback only: the reverse proxy (TLS, Host routing) is the only way in. If the proxy runs
+# on another machine, bind an internal address instead and firewall it.
+PublishPort=127.0.0.1:8099:8099
+Volume=%h/Caddyfile:/etc/caddy/Caddyfile:ro,Z
+Volume=%h/ota:/srv/ota:ro,Z
+
+[Service]
+Restart=always
+TimeoutStartSec=60
+
+[Install]
+WantedBy=default.target

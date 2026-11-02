@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 18:48:00 +0100
+Subject: [PATCH] gta4xl-common: Include the LineageOS libperfmgr sepolicy
+
+The Pixel power HAL (android.hardware.power-service.pixel-libperfmgr)
+starts a ThermalStateListener from its init thread that looks up
+android.hardware.thermal.IThermal/default and registers a throttling
+callback (aidl/utils/ThermalStateListener.cpp), but hal_power_default is
+not a hal_thermal client here:
+
+  avc: denied { find } for pid=4840 uid=0
+  name=android.hardware.thermal.IThermal/default
+  scontext=u:r:hal_power_default:s0 tcontext=u:object_r:hal_thermal_service:s0
+  tclass=service_manager permissive=0
+
+waitForService() returns null, the listener logs "Cannot get Thermal
+Hal binder!" and keeps ThrottlingSeverity::NONE. That value is only
+consumed by the ADPF session-metrics collection (PowerSessionManager,
+gated on EnableMetricCollection in powerhint.json, which this device
+does not set), so hints, boosts and ADPF sessions are unaffected - the
+denial is log noise. It was already present on the lineage-23.2
+baseline, together with a fwk_stats_service find denial from the same
+HAL.
+
+device/lineage/sepolicy/libperfmgr is LineageOS' policy module for
+devices running the Pixel libperfmgr power HAL: it carries
+hal_client_domain(hal_power_default, hal_thermal), the IStats find
+rule, and labels vendor.powerhal.* as vendor_power_prop (today those
+props fall into vendor_default_prop). Include it like the exynos and
+libion modules.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ BoardConfigCommon.mk | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
+index 180dd4e..5e0e182 100644
+--- a/BoardConfigCommon.mk
++++ b/BoardConfigCommon.mk
+@@ -165,6 +165,7 @@ VENDOR_SECURITY_PATCH := 2024-05-01
+ BOARD_SEPOLICY_TEE_FLAVOR := teegris
+ include device/lineage/sepolicy/exynos/sepolicy.mk
+ include device/lineage/sepolicy/libion/sepolicy.mk
++include device/lineage/sepolicy/libperfmgr/sepolicy.mk
+ include device/samsung_slsi/sepolicy/sepolicy.mk
+ 
+ BOARD_VENDOR_SEPOLICY_DIRS += $(COMMON_PATH)/sepolicy/vendor

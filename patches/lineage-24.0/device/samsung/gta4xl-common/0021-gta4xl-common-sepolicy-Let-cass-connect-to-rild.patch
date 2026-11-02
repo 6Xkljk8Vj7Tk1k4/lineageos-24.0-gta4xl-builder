@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 07:33:46 +0100
+Subject: [PATCH] gta4xl-common: sepolicy: Let cass connect to rild
+
+Samsung's cass daemon (/vendor/bin/cass, "cp_monitor": watches the
+modem over /dev/umts_cass and reports CP state to the RIL) connects to
+the RIL's abstract socket @VND_Multiclient about once a second, is
+denied, gives up after 28 tries, exits and is restarted by init:
+
+  avc: denied { connectto } for comm="cass" path=00564E445F4D756C7469636C69656E74
+  scontext=u:r:cass:s0 tcontext=u:r:rild:s0 tclass=unix_stream_socket permissive=0
+
+  E/CASS_DEBUG: Failed to connect to rild(4), please check if rild is ready
+  E/CASS_DEBUG: [cp_monitor] Fatal error : Can't connect RILD!. Exit
+
+With CONFIG_AUDIT that is ~550 denials plus their syscall records per
+ten minutes: the 2 MB kernel log buffer wraps in about ten minutes and
+"audit: rate limit exceeded" starts dropping records, so any other
+denial is likely to be lost. device/samsung_slsi/sepolicy's cass.te
+only grants /dev/umts_cass and the vaultkeeper socket.
+
+Grant the connect, as this directory already does for hal_audio_default
+(the voice-call path uses the same RIL multiclient socket) and as
+Samsung's own policy does. Verified on the device by compiling the
+shipped CIL with this rule added and loading it live (neverallow check
+passed): cass connects, no further denial from cass or rild follows,
+and the kernel log stays quiet. Without a SIM the modem is out of
+service and cass then retries its first IPC ("Failed to send IPC
+0xc00000e1"), which is logcat noise only.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ sepolicy/vendor/cass.te | 4 ++++
+ 1 file changed, 4 insertions(+)
+ create mode 100644 sepolicy/vendor/cass.te
+
+diff --git a/sepolicy/vendor/cass.te b/sepolicy/vendor/cass.te
+new file mode 100644
+index 0000000..7adb430
+--- /dev/null
++++ b/sepolicy/vendor/cass.te
+@@ -0,0 +1,4 @@
++# cass (Samsung's CP monitor, /vendor/bin/cass) talks to the RIL over the
++# abstract socket @VND_Multiclient, like hal_audio_default in this directory.
++# The slsi common policy only lets it open /dev/umts_cass.
++allow cass rild:unix_stream_socket connectto;

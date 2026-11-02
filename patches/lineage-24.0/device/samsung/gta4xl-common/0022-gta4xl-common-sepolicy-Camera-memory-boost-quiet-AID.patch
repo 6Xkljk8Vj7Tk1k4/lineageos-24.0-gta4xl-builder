@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 10:11:26 +0100
+Subject: [PATCH] gta4xl-common: sepolicy: Camera memory boost, quiet AIDL
+ allocator lookup
+
+Opening the camera logs two denials for the camera HAL:
+
+  avc: denied { read write } for comm="binder:768_2" name="mem_boost_mode"
+  dev="sysfs" scontext=u:r:hal_camera_default:s0 tcontext=u:object_r:sysfs:s0
+  tclass=file permissive=0
+
+  SELinux: avc: denied { find } for pid=768 uid=1047
+  name=android.hardware.graphics.allocator.IAllocator/default
+  scontext=u:r:hal_camera_default:s0
+  tcontext=u:object_r:hal_graphics_allocator_service:s0
+
+/sys/kernel/mm/vmscan/mem_boost_mode is Samsung's kswapd boost: the
+camera HAL writes 1 or 2 when it opens a camera so that kswapd reclaims
+file pages more eagerly for up to five seconds (the kernel validates
+the value and resets it on its own). Samsung's init.exynos9611.rc
+already chowns the node to cameraserver for exactly this, but the node
+kept the generic sysfs label, so the boost never happened. Label it
+sysfs_camera_writable, which only hal_camera_default may write.
+
+The allocator lookup happens on the first buffer allocation in the HAL
+process. This device has no AIDL allocator (only gralloc 2.0 HIDL,
+which the HAL then uses), so the lookup can only fail; don't audit it,
+like the existing default_prop dontaudit in this file.
+
+Verified on the device by compiling the shipped CIL with both rules
+added (neverallow checks on) and loading it with load_policy: after
+re-instantiating the sysfs inode it carries sysfs_camera_writable,
+mem_boost_mode reads 2 right after the camera opens, and neither
+denial comes back, also not on the first camera open after restarting
+vendor.camera.provider. Both first showed up in a tablet_test.sh run on
+the build with patch 0021; the earlier runs, which still had the cass
+denial flood, did not log them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ sepolicy/vendor/genfs_contexts        | 3 +++
+ sepolicy/vendor/hal_camera_default.te | 4 ++++
+ 2 files changed, 7 insertions(+)
+
+diff --git a/sepolicy/vendor/genfs_contexts b/sepolicy/vendor/genfs_contexts
+index 4a16964..fd8c4a3 100644
+--- a/sepolicy/vendor/genfs_contexts
++++ b/sepolicy/vendor/genfs_contexts
+@@ -29,5 +29,8 @@ genfscon sysfs /devices/system/chip-id/revision
+ # Firmware
+ genfscon sysfs /firmware/devicetree/base/sound/mixer-paths                                                     u:object_r:sysfs_audio:s0
+ 
++# Kernel
++genfscon sysfs /kernel/mm/vmscan/mem_boost_mode                                                                u:object_r:sysfs_camera_writable:s0
++
+ # Module
+ genfscon sysfs /module/scsc_bt/parameters/bluetooth_address                                                    u:object_r:sysfs_bt_writable:s0
+diff --git a/sepolicy/vendor/hal_camera_default.te b/sepolicy/vendor/hal_camera_default.te
+index cf3d50d..026dfea 100644
+--- a/sepolicy/vendor/hal_camera_default.te
++++ b/sepolicy/vendor/hal_camera_default.te
+@@ -19,3 +19,7 @@ get_prop(hal_camera_default, exported_camera_prop);
+ set_prop(hal_camera_default, vendor_camera_prop);
+ 
+ dontaudit hal_camera_default default_prop:file read;
++
++# The first buffer allocation looks up the AIDL allocator; this device only
++# has gralloc 2.0 HIDL, which the HAL then uses, so the lookup can only fail.
++dontaudit hal_camera_default hal_graphics_allocator_service:service_manager find;

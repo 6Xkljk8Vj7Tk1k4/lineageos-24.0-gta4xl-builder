@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 18:48:00 +0100
+Subject: [PATCH] gta4xl-common: sepolicy: Let SurfaceFlinger read
+ vendor.display props
+
+LineageOS' SurfaceFlinger reads vendor.display.vds_allow_hwc in
+SurfaceFlinger::init() (HWC for virtual/WFD displays, a QCOM display
+property). device/samsung_slsi/sepolicy maps the vendor.display. prefix
+to vendor_hwc_prop (next to our own vendor.hwc. entry) without granting
+SurfaceFlinger read access, so every boot logs
+
+  avc: denied { read } for comm="surfaceflinger"
+  name="u:object_r:vendor_hwc_prop:s0" dev="tmpfs"
+  scontext=u:r:surfaceflinger:s0 tcontext=u:object_r:vendor_hwc_prop:s0
+  tclass=file permissive=0
+
+The property is never set on this device, so the read returning the
+default (false) and the denied read behave the same: no user-visible
+impact, present on the lineage-23.2 baseline too.
+
+vendor_hwc_prop is a vendor_restricted_prop, which coredomain may be
+granted read access to (only set is neverallowed), and this mirrors
+get_prop(surfaceflinger, vendor_display_prop) in the QCOM policies.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ sepolicy/vendor/surfaceflinger.te | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/sepolicy/vendor/surfaceflinger.te b/sepolicy/vendor/surfaceflinger.te
+index 30a731e..549a326 100644
+--- a/sepolicy/vendor/surfaceflinger.te
++++ b/sepolicy/vendor/surfaceflinger.te
+@@ -1,3 +1,7 @@
+ r_dir_file(surfaceflinger, hal_graphics_composer_default);
+ 
+ allow surfaceflinger unlabeled:filesystem getattr;
++
++# vendor.display.vds_allow_hwc, read in SurfaceFlinger::init(); the
++# vendor.display. prefix is vendor_hwc_prop (device/samsung_slsi/sepolicy)
++get_prop(surfaceflinger, vendor_hwc_prop)

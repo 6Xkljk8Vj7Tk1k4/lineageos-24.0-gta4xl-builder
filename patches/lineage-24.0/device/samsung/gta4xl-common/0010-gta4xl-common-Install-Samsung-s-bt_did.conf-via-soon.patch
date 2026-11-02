@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 21:28:29 +0000
+Subject: [PATCH] gta4xl-common: Install Samsung's bt_did.conf via soong
+
+hardware/samsung_slsi/libbt installs bt_did.conf through the
+bt_did.slsi.conf prebuilt_etc module on lineage-24.0, which clashes
+with the PRODUCT_COPY_FILES entry ("overriding commands for target
+.../vendor/etc/bluetooth/bt_did.conf"). bt_vendor.conf is gone from
+libbt as unused - libbt-vendor never read it, the h4 device path is
+hardcoded in bt_vendor_slsi.c.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I8ea162e0ef16c9da9bcb2530bb577210edc89f95
+---
+ common.mk | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/common.mk b/common.mk
+index 34f5da2..23313fd 100644
+--- a/common.mk
++++ b/common.mk
+@@ -60,12 +60,9 @@ TARGET_EXCLUDES_AUDIOFX := true
+ PRODUCT_PACKAGES += \
+     android.hardware.bluetooth@1.0-impl:64 \
+     android.hardware.bluetooth@1.0-service \
++    bt_did.slsi.conf \
+     libbt-vendor:64
+ 
+-PRODUCT_COPY_FILES += \
+-    hardware/samsung_slsi/libbt/conf/bt_did.conf:$(TARGET_COPY_OUT_VENDOR)/etc/bluetooth/bt_did.conf \
+-    hardware/samsung_slsi/libbt/conf/bt_vendor.conf:$(TARGET_COPY_OUT_VENDOR)/etc/bluetooth/bt_vendor.conf
+-
+ # Camera
+ PRODUCT_PACKAGES += \
+     android.hardware.camera.provider-service.samsung

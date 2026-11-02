@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 21:28:29 +0000
+Subject: [PATCH] gta4xl-common: Switch to common wpa_supplicant.conf
+
+With hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib exported, its
+wpa_supplicant.conf module (generated from the AOSP template) installs
+vendor/etc/wifi/wpa_supplicant.conf and clashes with our own copy.
+Use the common one, like other SLSI devices do on lineage-24.0.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: Ia12b4306588a4cd4cae70731ffb7269df052cb83
+---
+ common.mk                        | 4 ++--
+ configs/wifi/wpa_supplicant.conf | 5 -----
+ 2 files changed, 2 insertions(+), 7 deletions(-)
+ delete mode 100644 configs/wifi/wpa_supplicant.conf
+
+diff --git a/common.mk b/common.mk
+index 23313fd..e9ec1c7 100644
+--- a/common.mk
++++ b/common.mk
+@@ -266,11 +266,11 @@ PRODUCT_PACKAGES += \
+     WifiOverlay \
+     android.hardware.wifi-service \
+     hostapd \
+-    wpa_supplicant
++    wpa_supplicant \
++    wpa_supplicant.conf
+ 
+ PRODUCT_COPY_FILES += \
+     $(COMMON_PATH)/configs/wifi/p2p_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/p2p_supplicant_overlay.conf \
+-    $(COMMON_PATH)/configs/wifi/wpa_supplicant.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant.conf \
+     $(COMMON_PATH)/configs/wifi/wpa_supplicant_overlay.conf:$(TARGET_COPY_OUT_VENDOR)/etc/wifi/wpa_supplicant_overlay.conf
+ 
+ PRODUCT_CFI_INCLUDE_PATHS += hardware/samsung_slsi/scsc_wifibt/wpa_supplicant_lib
+diff --git a/configs/wifi/wpa_supplicant.conf b/configs/wifi/wpa_supplicant.conf
+deleted file mode 100644
+index 4d05858..0000000
+--- a/configs/wifi/wpa_supplicant.conf
++++ /dev/null
+@@ -1,5 +0,0 @@
+-update_config=1
+-eapol_version=1
+-ap_scan=1
+-fast_reauth=1
+-p2p_add_cli_chan=1

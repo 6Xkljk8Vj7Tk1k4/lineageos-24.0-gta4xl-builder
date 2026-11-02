@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 10:38:46 +0000
+Subject: [PATCH] gta4xl-common: Move FUSE passthrough prop to product
+
+persist.sys.* is system_prop, which vendor_init may not set, so the line
+in vendor.prop was rejected at boot ("avc: denied { set } for
+property=persist.sys.fuse.passthrough.enable scontext=u:r:vendor_init")
+and FuseDaemon never enabled passthrough, although the kernel supports
+it (FUSE_DEV_IOC_PASSTHROUGH_OPEN, which libfuse tries first).
+
+Set it from the product partition instead, like AOSP's cuttlefish does
+with PRODUCT_PRODUCT_PROPERTIES. Measured on device: app-facing reads
+through /sdcard go from ~220 MB/s to ~416 MB/s (raw f2fs: ~424 MB/s),
+with identical checksums for data read and written through FUSE.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I5a876d52389ecf3cc2b49e9860073fedd7516a71
+---
+ BoardConfigCommon.mk | 1 +
+ product.prop         | 2 ++
+ vendor.prop          | 3 ---
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+ create mode 100644 product.prop
+
+diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
+index 5885840..180dd4e 100644
+--- a/BoardConfigCommon.mk
++++ b/BoardConfigCommon.mk
+@@ -142,6 +142,7 @@ TARGET_SOC := exynos9611
+ include hardware/samsung_slsi-linaro/config/BoardConfig9611.mk
+ 
+ ## Properties
++TARGET_PRODUCT_PROP += $(COMMON_PATH)/product.prop
+ TARGET_VENDOR_PROP += $(COMMON_PATH)/vendor.prop
+ 
+ ## Recovery
+diff --git a/product.prop b/product.prop
+new file mode 100644
+index 0000000..d5b098e
+--- /dev/null
++++ b/product.prop
+@@ -0,0 +1,2 @@
++# FUSE
++persist.sys.fuse.passthrough.enable=true
+diff --git a/vendor.prop b/vendor.prop
+index 84b02fe..59f57c4 100644
+--- a/vendor.prop
++++ b/vendor.prop
+@@ -36,9 +36,6 @@ dalvik.vm.lockprof.threshold=500
+ ## FRP
+ ro.frp.pst=/dev/block/persistent
+ 
+-## FUSE
+-persist.sys.fuse.passthrough.enable=true
+-
+ ## Graphics
+ debug.sf.auto_latch_unsignaled=0
+ debug.sf.disable_client_composition_cache=1

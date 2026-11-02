@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sun, 25 Oct 2026 18:48:00 +0100
+Subject: [PATCH] gta4xl-common: Drop unread ro.apk_verity.mode and
+ ro.product_ship
+
+Both come from vendor.prop, land in /vendor/build.prop and are set by
+vendor_init, but neither has a property_contexts entry, so they are
+default_prop, which only init may set:
+
+  avc: denied { set } for property=ro.apk_verity.mode ... scontext=u:r:vendor_init:s0
+  tcontext=u:object_r:default_prop:s0 tclass=property_service permissive=0
+  avc: denied { set } for property=ro.product_ship ... (same)
+
+They have never existed at runtime (getprop is empty on 23.2 and 24.0),
+and nothing would read them anyway: ro.apk_verity.mode was dropped from
+frameworks/base together with the apk-verity feature, and
+ro.product_ship is a Samsung-only switch that no blob shipped by this
+tree references (grep over frameworks/, system/, packages/, hardware/
+and vendor/samsung/gta4xl*/proprietary finds no reader). Unlike
+persist.sys.fuse.passthrough.enable (patch 0014) there is nothing to
+move to product.prop - just drop them.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+---
+ vendor.prop | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/vendor.prop b/vendor.prop
+index 59f57c4..f1405d0 100644
+--- a/vendor.prop
++++ b/vendor.prop
+@@ -1,9 +1,6 @@
+ ## Adoptable Storage
+ ro.crypto.volume.options=aes-256-xts:aes-256-cts:v2
+ 
+-## APK Verity
+-ro.apk_verity.mode=2
+-
+ ## Audio
+ audio.offload.min.duration.secs=30
+ aaudio.mmap_policy=2
+@@ -62,7 +59,6 @@ ro.crypto.volume.metadata.method=dm-default-key
+ vendor.powerhal.disp.idle_support=false
+ 
+ ## Samsung specific
+-ro.product_ship=true
+ # Set csc support in OMX
+ # If not set or set to 0, OMX will only use BT.601 colorspace.
+ ro.vendor.cscsupported=1

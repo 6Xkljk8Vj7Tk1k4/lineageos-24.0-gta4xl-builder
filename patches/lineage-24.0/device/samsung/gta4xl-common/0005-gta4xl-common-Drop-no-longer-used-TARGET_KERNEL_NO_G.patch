@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Tue, 20 Oct 2026 20:21:38 +0000
+Subject: [PATCH] gta4xl-common: Drop no longer used TARGET_KERNEL_NO_GCC
+
+Kernels are always built without GCC on lineage-24.0.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Change-Id: I5325152322d747f912ef2b010dc747bee014e496
+---
+ BoardConfigCommon.mk | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/BoardConfigCommon.mk b/BoardConfigCommon.mk
+index c20101e..0b75a1f 100644
+--- a/BoardConfigCommon.mk
++++ b/BoardConfigCommon.mk
+@@ -111,7 +111,6 @@ TARGET_USES_VULKAN := true
+ 
+ ## Kernel
+ BOARD_KERNEL_IMAGE_NAME := Image
+-TARGET_KERNEL_NO_GCC := true
+ TARGET_KERNEL_SOURCE := kernel/samsung/gta4xl
+ 
+ ## Keymaster
