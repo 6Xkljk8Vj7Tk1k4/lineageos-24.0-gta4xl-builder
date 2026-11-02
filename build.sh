@@ -80,9 +80,9 @@ CAPTIVE_PORTAL_HOST="${CAPTIVE_PORTAL_HOST-}"
 # Apps left out of the image (Soong `overrides`): Recorder, Music, backup, wallpapers,
 # screen savers and LineageOS's profiles.
 DEBLOAT_PACKAGES="${DEBLOAT_PACKAGES-Recorder Twelve Seedvault Backgrounds LiveWallpapersPicker PhotoTable BasicDreams Profiles}"
-# Trust rates the vendor security patch level from the device tree (2024-05-01, Samsung's
-# last firmware for the Exynos 9611 in TheMuppets' blobs) as current instead of
-# "out of date" forever. The date shown stays the real one.
+# Trust rates the vendor security patch level of the device tree (2024-05-01, the level of
+# the proprietary files in TheMuppets' lineage-23.2, which nothing in this build can raise)
+# as current instead of a permanent "out of date". The date shown stays the real one.
 TRUST_VENDOR_PATCH_FINAL="${TRUST_VENDOR_PATCH_FINAL-true}"
 # Developer options visible without tapping the build number seven times.
 DEVELOPER_OPTIONS_VISIBLE="${DEVELOPER_OPTIONS_VISIBLE-true}"
@@ -494,15 +494,16 @@ if [ -n "$PRIVATE_DNS_HOST" ]; then
     fi
 fi
 
-# 8. Trust: Samsung will not release newer firmware for this SoC, so the vendor patch
-#    level of the device tree (VENDOR_SECURITY_PATCH) is final. Trust rates exactly that
+# 8. Trust: the vendor patch level of the device tree (VENDOR_SECURITY_PATCH) is that of the
+#    proprietary files in use and cannot change within this build. Trust rates exactly that
 #    value as current instead of a permanent "out of date"; an older level still is not.
+#    (Samsung has released newer firmware since, see CLAUDE.md, "Proprietary files".)
 if [ -n "$TRUST_VENDOR_PATCH_FINAL" ]; then
     TRUST_FILE="lineage-sdk/lineage/lib/main/java/org/lineageos/platform/internal/TrustInterfaceService.java"
     final_patch=$(sed -n 's/^VENDOR_SECURITY_PATCH *:= *//p' "device/samsung/${DEVICE}-common/BoardConfigCommon.mk" "device/samsung/${DEVICE}/BoardConfig.mk" 2>/dev/null | tail -1 | tr -d '[:space:]' || true)
     if [ -n "$final_patch" ]; then
-        perl -0pi -e 's/(\n(\s*)String patchLevel = SystemProperties\.get\(target\);\n)/$1$2\/\/ gta4xl-builder: Samsung'"'"'s last firmware for this SoC, this vendor patch level is final\n$2if (VENDOR_SECURITY_PATCHES.equals(target) \&\& "'"$final_patch"'".equals(patchLevel)) {\n$2    return TrustInterface.TRUST_FEATURE_LEVEL_GOOD;\n$2}\n/' "$TRUST_FILE"
-        grep -q "gta4xl-builder: Samsung's last firmware" "$TRUST_FILE" || { echo "!!! Trust: the edit of $TRUST_FILE did not apply (upstream changed)"; exit 1; }
+        perl -0pi -e 's/(\n(\s*)String patchLevel = SystemProperties\.get\(target\);\n)/$1$2\/\/ gta4xl-builder: the vendor patch level of the proprietary files in use counts as current\n$2if (VENDOR_SECURITY_PATCHES.equals(target) \&\& "'"$final_patch"'".equals(patchLevel)) {\n$2    return TrustInterface.TRUST_FEATURE_LEVEL_GOOD;\n$2}\n/' "$TRUST_FILE"
+        grep -q "gta4xl-builder: the vendor patch level" "$TRUST_FILE" || { echo "!!! Trust: the edit of $TRUST_FILE did not apply (upstream changed)"; exit 1; }
         echo ">>> Trust: vendor patch level $final_patch rated as current"
     else
         echo ">>> WARNING: Trust: no VENDOR_SECURITY_PATCH in the device tree - skipped"
