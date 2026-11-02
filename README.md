@@ -18,13 +18,13 @@ Tested on one SM-P615 with Samsung's firmware P615XXSAFYD1, used every day, and 
 | Feature | Status |
 | --- | --- |
 | Boot, display, touch, setup wizard | Works (about 25 s to the lock screen) |
-| Wi-Fi | Works (WPA2 and WPA3) |
+| Wi-Fi | Works (tested on a WPA2 network) |
 | Bluetooth | Works |
 | Audio | Works (speaker) |
 | Camera | Works (photos and video with the Aperture app) |
 | Video | Hardware decoding and encoding |
 | Sensors | Work (23 sensors register, among them accelerometer, gyroscope and light sensor) |
-| S Pen | Works |
+| S Pen | Detected (the pen's input device registers); pen input itself not tested |
 | Charging, battery | Work |
 | Sleep | The processor sleeps when the screen is off (while no computer is connected); Wi-Fi reconnects after waking up |
 | Storage | File-based encryption; reads from internal storage at about 440 MB/s |
