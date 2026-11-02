@@ -11,6 +11,10 @@ How it started: my Tab S6 Lite ran LineageOS 23.2, and I did not want to wait fo
 With the help of [Claude](https://claude.ai) (Anthropic's AI assistant, used through Claude Code) it got Android 17.
 Claude did most of the work — porting the device tree, finding out why each test boot failed, merging and backporting the kernel changes, reviewing the kernel's security and writing this documentation — while I tested on the tablet.
 
+<p align="center">
+  <img src="docs/android-version.png" width="300" alt="Settings, About tablet, Android version: Android 17, LineageOS 24.0-20261102-UNOFFICIAL-gta4xl, Android security update 1 October 2026, vendor security patch level 1 May 2024, baseband P615XXSAFYD1, kernel 4.14.357-openela-g6134261030f1">
+</p>
+
 ## Status
 
 Tested on one SM-P615 with Samsung's firmware P615XXSAFYD1, used every day, and with an automated test of every component over adb (`tools/tablet-test.sh`). On the build of 2 November 2026, 83 of 84 checks passed; the one failure was SELinux denials when the camera opens, fixed since by patch 0022.
@@ -24,7 +28,7 @@ Tested on one SM-P615 with Samsung's firmware P615XXSAFYD1, used every day, and 
 | Camera | Works (photos and video with the Aperture app) |
 | Video | Hardware decoding and encoding |
 | Sensors | Work (23 sensors register, among them accelerometer, gyroscope and light sensor) |
-| S Pen | Detected (the pen's input device registers); pen input itself not tested |
+| S Pen | Works |
 | Charging, battery | Work |
 | Sleep | The processor sleeps when the screen is off (while no computer is connected); Wi-Fi reconnects after waking up |
 | Storage | File-based encryption; reads from internal storage at about 440 MB/s |
