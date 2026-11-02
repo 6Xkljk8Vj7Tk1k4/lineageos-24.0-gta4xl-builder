@@ -100,7 +100,7 @@ LineageOS's 4.14 kernel for this tablet only has the backports up to the 5.4 lev
 The build therefore uses the fork **[6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl)**, branch `gta4xl-24.0`: LineageOS's `lineage-23.2` kernel merged with PhoenixKernel's eBPF-5.10 backports (the same series as in the official LineageOS 24.0 kernels for Motorola's Exynos 9610 phones), 58 cgroup/freezer and `clone3` commits from the Motorola exynos9610 `lineage-24.0` kernel, and security fixes.
 `build.sh` swaps it in with a local manifest and sets `ro.bpf.kver_override=5.10.239`, as the other official 24.0 devices on 4.14 and 4.19 kernels do.
 
-Samsung's last kernel sources for the Exynos 9611 date from 2024, and the 4.14 stable series ended in March 2026, so the fork carries its own security work (details in its [README](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl/blob/gta4xl-24.0/README.gta4xl-24.0.md)):
+The 4.14 stable series ended in March 2026, and Samsung's own kernel source releases for this tablet bring only a few driver changes (the Mali fixes of its 2025 release are in the fork), so the fork carries its own security work (details in its [README](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl/blob/gta4xl-24.0/README.gta4xl-24.0.md)):
 
 - **28 CVEs fixed** by backports or hand-ports, five of them on CISA's list of vulnerabilities exploited in the wild: CVE-2024-4610 and CVE-2023-26083 (Mali GPU driver), CVE-2025-38352 (posix CPU timers, used against Android) and the forensic-tool USB chain CVE-2024-50302 / CVE-2024-53197.
 - **Remote network bugs** in IPv4, IPv6, TCP and cfg80211 that a host on the same network can trigger, among them CVE-2026-98432 (rated Critical by Red Hat).
@@ -272,7 +272,7 @@ The build checks the host first and keeps Google's check if it does not answer c
 
 All run on the computer; the tablet ones over adb.
 
-- `tools/tablet-test.sh`: tests the installed build component by component (boot state, services, storage, memory and CPU, battery, display, input, sensors, Wi-Fi, NTP, Bluetooth, modem, location, audio, video encoding, cameras, video playback, security settings, sleep) and records the log lines, SELinux denials and crashes each test caused, in `build_output/tablet-test/`. Needs Developer options → Rooted debugging; it changes radio settings during the test and restores them.
+- `tools/tablet-test.sh`: tests the installed build component by component (boot state, services, storage, memory and CPU, battery, display, input, sensors, Wi-Fi, NTP, Bluetooth, modem, location, audio, video encoding, camera, video playback, security settings, sleep) and records the log lines, SELinux denials and crashes each test caused, in `build_output/tablet-test/`. Needs Developer options → Rooted debugging; it changes radio settings during the test and restores them.
 - `tools/tablet-setup.sh`: after an installation, installs every APK from a folder and connects to Wi-Fi.
 - `tools/kernel-build.sh` and `tools/kernel-flash.sh`: build the kernel fork on its own in a few minutes and test it on the tablet without building the whole system (with a backup and a restore path).
 - `tools/kernel-cve-check.sh`: the monthly kernel CVE review described under [The kernel](#the-kernel).
