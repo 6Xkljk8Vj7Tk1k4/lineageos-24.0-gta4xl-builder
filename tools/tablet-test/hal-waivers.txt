@@ -1,0 +1,9 @@
+# HALs that the tablet's device manifest declares and that are not registered while tools/tablet-test.sh
+# (test "vintf") looks: one name or shell pattern per line, then the reason. The test fails on a
+# declared HAL that is neither registered nor listed here.
+*/slot2                                                     the manifest is shared with the two-SIM models; this tablet has one SIM slot
+*ISehRadioChannel/epdgd2                                    second SIM slot, as above
+*ISehRadioChannel/imsd2                                     second SIM slot, as above
+android.hardware.graphics.composer@2.4::IComposer/default   left over in the upstream device manifest; the composer that runs is the AIDL one (composer3), which is declared and checked
+android.hardware.wifi.hostapd.IHostapd/default              started on demand, when the hotspot is switched on (HOTSPOT=1 tests it)
+android.hardware.wifi.supplicant.ISupplicant/default        runs only while Wi-Fi is on; the "wifi" test covers it

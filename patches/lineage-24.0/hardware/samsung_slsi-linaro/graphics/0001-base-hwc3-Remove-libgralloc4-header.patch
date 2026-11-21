@@ -1,0 +1,21 @@
+From 963acb0c9e657087dd55ff2d3321aa1ae9ab311d Mon Sep 17 00:00:00 2001
+From: CmdCtrlDevic3 <cmdctrldevic3@proton.me>
+Date: Thu, 19 Nov 2026 21:01:10 +0200
+Subject: [PATCH] base: hwc3: Remove libgralloc4 header
+
+Change-Id: Ieddf0beca04002a324899ca8b3827f6a3b685f2e
+Signed-off-by: CmdCtrlDevic3 <cmdctrldevic3@proton.me>
+---
+
+diff --git a/base/hwc3/Android.bp b/base/hwc3/Android.bp
+index 98957c7..057bb61 100644
+--- a/base/hwc3/Android.bp
++++ b/base/hwc3/Android.bp
+@@ -83,7 +83,6 @@
+ 
+     header_libs: [
+         "android.hardware.graphics.composer3-command-buffer",
+-        "libgralloc4_headers_exynos",
+         "libhdrinterface_header",
+     ] + select(soong_config_variable("exynos_hwc", "uses_display_color_interface"), {
+         true: ["libdisplaycolor_interface"],

@@ -1,0 +1,744 @@
+From 1ff10844f72b8b89a22cc76b0a2b0803fbb5e134 Mon Sep 17 00:00:00 2001
+From: LineageOS builder <builder@localhost>
+Date: Fri, 13 Nov 2026 18:19:46 +0100
+Subject: [PATCH] Updater: Unattended installation of updates
+
+Off unless the system property lineage.updater.auto_install is true, and
+only on non-A/B devices (recovery install path); with the property unset
+nothing new is scheduled and the app behaves as before.
+
+When enabled:
+- BOOT_COMPLETED schedules a one-shot check; a check that found no
+  validated network is retried instead of dropped.
+- The candidate is only ever the newest update from the server that is
+  newer than the running build and of the same SDK level; if it was
+  tried automatically before, there is no candidate (no fallback to an
+  older build).
+- After a successful check the candidate is downloaded by UpdaterService
+  on an unmetered network, after a free-space check. Download errors
+  are resumed after 30 min, 1, 2, 4 and 8 h, then not before the next
+  check.
+- A verified package is installed by two jobs: device idle + charging,
+  and device idle inside the night window 00:00-05:00. Right before
+  installing, the package's own signed metadata must show a newer
+  build, the same SDK level and a non-A/B package (the index JSON is
+  unsigned); the screen must be off, the battery level OK and the space
+  for the uncrypt copy free.
+- The ids of attempted packages are stored (commit()) before the install
+  is triggered, when verification fails and when the metadata refuses
+  the package; they are never tried automatically again, which prevents
+  reboot and download loops. The user can still install them by hand.
+- A 15 min partial wake lock covers the copy for uncrypt until the
+  reboot.
+
+Workers start UpdaterService as a foreground service (allowed from the
+background by START_ACTIVITIES_FROM_BACKGROUND); the service goes
+foreground at once for these intents and drops it again when nothing
+was started. The rules are pure functions in AutoInstallPolicy; every
+decision is logged once under the tag AutoInstall. No new strings or
+permissions.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../lineageos/updater/UpdaterReceiver.java    |   2 +
+ .../updater/autoinstall/AutoInstall.kt        | 250 ++++++++++++++++++
+ .../updater/autoinstall/AutoInstallPolicy.kt  | 128 +++++++++
+ .../updater/autoinstall/AutoInstallWorkers.kt | 164 ++++++++++++
+ .../updater/controller/UpdaterService.java    |  26 ++
+ .../updater/deviceinfo/DeviceInfoUtils.kt     |   5 +
+ .../updatescheck/UpdatesCheckWorker.kt        |   4 +
+ 7 files changed, 579 insertions(+)
+ create mode 100644 app/src/main/java/org/lineageos/updater/autoinstall/AutoInstall.kt
+ create mode 100644 app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallPolicy.kt
+ create mode 100644 app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallWorkers.kt
+
+diff --git a/app/src/main/java/org/lineageos/updater/UpdaterReceiver.java b/app/src/main/java/org/lineageos/updater/UpdaterReceiver.java
+index d143b02..d6fe200 100644
+--- a/app/src/main/java/org/lineageos/updater/UpdaterReceiver.java
++++ b/app/src/main/java/org/lineageos/updater/UpdaterReceiver.java
+@@ -12,6 +12,7 @@ import android.os.PowerManager;
+ 
+ import androidx.preference.PreferenceManager;
+ 
++import org.lineageos.updater.autoinstall.AutoInstall;
+ import org.lineageos.updater.controller.UpdaterService;
+ import org.lineageos.updater.deviceinfo.DeviceInfoUtils;
+ import org.lineageos.updater.misc.Constants;
+@@ -42,6 +43,7 @@ public class UpdaterReceiver extends BroadcastReceiver {
+         } else if (Intent.ACTION_BOOT_COMPLETED.equals(intent.getAction())) {
+             Utils.removeUncryptFiles(Utils.getDownloadPath(context));
+             UpdatesCheckWorker.schedulePeriodicCheck(context);
++            AutoInstall.onBoot(context);
+ 
+             SharedPreferences pref = PreferenceManager.getDefaultSharedPreferences(context);
+             String downloadId = pref.getString(Constants.PREF_NEEDS_REBOOT_ID, null);
+diff --git a/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstall.kt b/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstall.kt
+new file mode 100644
+index 0000000..d319f09
+--- /dev/null
++++ b/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstall.kt
+@@ -0,0 +1,250 @@
++/*
++ * SPDX-FileCopyrightText: The LineageOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package org.lineageos.updater.autoinstall
++
++import android.content.Context
++import android.content.Intent
++import android.os.PowerManager
++import android.util.Log
++import androidx.preference.PreferenceManager
++import androidx.work.Constraints
++import androidx.work.ExistingWorkPolicy
++import androidx.work.NetworkType
++import androidx.work.OneTimeWorkRequestBuilder
++import androidx.work.WorkManager
++import androidx.work.workDataOf
++import org.lineageos.updater.controller.UpdaterController
++import org.lineageos.updater.controller.UpdaterService
++import org.lineageos.updater.data.Update
++import org.lineageos.updater.data.UpdateStatus
++import org.lineageos.updater.data.source.local.UpdatesDatabase
++import org.lineageos.updater.data.source.local.UpdatesLocalDataSource
++import org.lineageos.updater.deviceinfo.DeviceInfoUtils
++import org.lineageos.updater.updatescheck.UpdatesCheckWorker
++import org.lineageos.updater.util.InstallUtils
++import java.time.Duration
++import java.time.LocalDateTime
++
++/**
++ * Unattended installation of updates (non-A/B only), off unless the system property
++ * lineage.updater.auto_install is true. The rules are in [AutoInstallPolicy]; this object
++ * connects them to the existing check, download and install code. Every decision is logged
++ * once under [TAG], since the feature has no UI.
++ */
++object AutoInstall {
++    const val TAG = "AutoInstall"
++
++    /** Marks a service intent sent by this feature (UpdaterService goes foreground at once). */
++    const val EXTRA_AUTO = "extra_auto_install"
++
++    private const val PREF_ATTEMPTED_IDS = "auto_install_attempted_ids"
++    private const val PREF_DOWNLOAD_FAILURES = "auto_install_download_failures"
++    private const val WORK_DOWNLOAD = "auto_download"
++    private const val WORK_INSTALL_CHARGING = "auto_install_charging"
++    private const val WORK_INSTALL_NIGHT = "auto_install_night"
++    const val KEY_NIGHT = "night"
++
++    private val WAKE_LOCK_TIMEOUT: Duration = Duration.ofMinutes(15)
++
++    /** Serializes the workers' check-then-act sequences (they run in this process). */
++    internal val lock = Any()
++
++    /** Kept referenced so the wake lock is not released by finalization before its timeout. */
++    private var wakeLock: PowerManager.WakeLock? = null
++
++    @JvmStatic
++    val isEnabled: Boolean
++        get() = AutoInstallPolicy.isEnabled(
++            DeviceInfoUtils.isAutoInstallEnabled, DeviceInfoUtils.isABDevice
++        )
++
++    @JvmStatic
++    fun isAutoIntent(intent: Intent?) = intent?.getBooleanExtra(EXTRA_AUTO, false) == true
++
++    /** BOOT_COMPLETED: check for updates once. */
++    @JvmStatic
++    fun onBoot(context: Context) {
++        if (!isEnabled) return
++        Log.i(TAG, "Boot: scheduling an update check")
++        UpdatesCheckWorker.scheduleOneshotCheck(context)
++    }
++
++    /** A check fetched the server's list: look for something to download. */
++    fun onCheckFinished(context: Context) {
++        if (!isEnabled) return
++        setDownloadFailures(context, 0)
++        Log.i(TAG, "Check finished: scheduling the download step")
++        enqueueDownload(context, Duration.ZERO)
++    }
++
++    /**
++     * Status changes seen by UpdaterService, for the candidate only. Who started the download
++     * does not matter: a candidate downloaded by hand is handled the same way.
++     */
++    @JvmStatic
++    fun onStatusChange(context: Context, update: Update?) {
++        if (!isEnabled || update == null) return
++        val status = update.status
++        if (status != UpdateStatus.VERIFIED && status != UpdateStatus.PAUSED_ERROR &&
++                status != UpdateStatus.VERIFICATION_FAILED) return
++        val candidate = candidate(context, UpdaterController.getInstance(context)).update
++        if (candidate?.downloadId != update.downloadId) return
++        when (status) {
++            UpdateStatus.VERIFIED -> {
++                setDownloadFailures(context, 0)
++                Log.i(TAG, "${update.name} verified: scheduling the install")
++                enqueueInstall(context)
++            }
++            UpdateStatus.PAUSED_ERROR -> {
++                val failures = downloadFailures(context) + 1
++                setDownloadFailures(context, failures)
++                val delay = AutoInstallPolicy.downloadRetryDelay(failures)
++                if (delay != null) {
++                    Log.i(TAG, "Download of ${update.name} failed ($failures): retrying in $delay")
++                    enqueueDownload(context, delay)
++                } else {
++                    Log.i(TAG, "Download of ${update.name} failed ($failures): waiting for the next check")
++                }
++            }
++            else -> {
++                rememberAttempt(context, update.downloadId)
++                Log.i(TAG, "${update.name} failed verification: not trying it again automatically")
++                cancelInstall(context)
++            }
++        }
++    }
++
++    /** The newest eligible update if it may be installed automatically, else the reason. */
++    fun candidate(context: Context, controller: UpdaterController): AutoInstallPolicy.Pick {
++        val pick = AutoInstallPolicy.pickCandidate(
++            controller.updates, DeviceInfoUtils.buildDateTimestamp, DeviceInfoUtils.sdkLevel,
++            attemptedIds(context),
++        )
++        val update = pick.update ?: return pick
++        return if (InstallUtils.canInstall(update)) {
++            pick
++        } else {
++            AutoInstallPolicy.Pick(null, "${update.name} is blocked by InstallUtils")
++        }
++    }
++
++    /**
++     * Hands the database's updates to the controller, as UpdatesActivity does: without an
++     * activity the controller may not know them yet (it also loads the database
++     * asynchronously right after process start).
++     */
++    fun syncController(context: Context): UpdaterController {
++        val controller = UpdaterController.getInstance(context)
++        val updates =
++            UpdatesLocalDataSource(UpdatesDatabase.getInstance(context).updateDao()).getUpdates()
++        val onlineIds = mutableListOf<String>()
++        for (update in updates) {
++            val online = update.downloadId != Update.LOCAL_ID
++            controller.addUpdate(update, online)
++            if (online) onlineIds.add(update.downloadId)
++        }
++        controller.setUpdatesAvailableOnline(onlineIds, true)
++        return controller
++    }
++
++    private fun prefs(context: Context) = PreferenceManager.getDefaultSharedPreferences(context)
++
++    private fun attemptedIds(context: Context): Set<String> =
++        prefs(context).getStringSet(PREF_ATTEMPTED_IDS, null) ?: emptySet()
++
++    /** Rule 4: written synchronously (a new set, commit()), before anything is triggered. */
++    fun rememberAttempt(context: Context, downloadId: String): Boolean =
++        prefs(context).edit()
++            .putStringSet(PREF_ATTEMPTED_IDS, HashSet(attemptedIds(context)) + downloadId)
++            .commit()
++
++    private fun downloadFailures(context: Context) =
++        prefs(context).getInt(PREF_DOWNLOAD_FAILURES, 0)
++
++    private fun setDownloadFailures(context: Context, failures: Int) {
++        prefs(context).edit().putInt(PREF_DOWNLOAD_FAILURES, failures).commit()
++    }
++
++    fun enqueueDownload(context: Context, delay: Duration) {
++        val request = OneTimeWorkRequestBuilder<AutoDownloadWorker>()
++            .setConstraints(
++                Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build()
++            )
++            .setInitialDelay(delay)
++            .build()
++        WorkManager.getInstance(context)
++            .enqueueUniqueWork(WORK_DOWNLOAD, ExistingWorkPolicy.REPLACE, request)
++    }
++
++    fun enqueueInstall(context: Context) {
++        val request = OneTimeWorkRequestBuilder<AutoInstallWorker>()
++            .setConstraints(
++                Constraints.Builder().setRequiresDeviceIdle(true).setRequiresCharging(true).build()
++            )
++            .build()
++        WorkManager.getInstance(context)
++            .enqueueUniqueWork(WORK_INSTALL_CHARGING, ExistingWorkPolicy.KEEP, request)
++        enqueueNightInstall(context, ExistingWorkPolicy.KEEP)
++    }
++
++    fun enqueueNightInstall(context: Context, policy: ExistingWorkPolicy) {
++        val request = OneTimeWorkRequestBuilder<AutoInstallWorker>()
++            .setConstraints(Constraints.Builder().setRequiresDeviceIdle(true).build())
++            .setInitialDelay(AutoInstallPolicy.delayToNight(LocalDateTime.now()))
++            .setInputData(workDataOf(KEY_NIGHT to true))
++            .build()
++        WorkManager.getInstance(context).enqueueUniqueWork(WORK_INSTALL_NIGHT, policy, request)
++    }
++
++    fun cancelInstall(context: Context) {
++        val workManager = WorkManager.getInstance(context)
++        workManager.cancelUniqueWork(WORK_INSTALL_CHARGING)
++        workManager.cancelUniqueWork(WORK_INSTALL_NIGHT)
++    }
++
++    /** Download through UpdaterService, which runs it in the foreground with its wake lock. */
++    fun startDownload(context: Context, downloadId: String) = startService(
++        context,
++        Intent(context, UpdaterService::class.java)
++            .setAction(UpdaterService.ACTION_DOWNLOAD_CONTROL)
++            .putExtra(UpdaterService.EXTRA_DOWNLOAD_ID, downloadId)
++            .putExtra(UpdaterService.EXTRA_DOWNLOAD_CONTROL, UpdaterService.DOWNLOAD_START)
++            .putExtra(EXTRA_AUTO, true),
++    )
++
++    /** The intent of Utils.triggerUpdate(), sent as a foreground service start. */
++    fun startInstall(context: Context, downloadId: String) = startService(
++        context,
++        Intent(context, UpdaterService::class.java)
++            .setAction(UpdaterService.ACTION_INSTALL_UPDATE)
++            .putExtra(UpdaterService.EXTRA_DOWNLOAD_ID, downloadId)
++            .putExtra(EXTRA_AUTO, true),
++    )
++
++    /** False (and logged) when the system refuses the start. */
++    private fun startService(context: Context, intent: Intent): Boolean = try {
++        context.startForegroundService(intent)
++        true
++    } catch (e: Exception) {
++        Log.i(TAG, "Could not start UpdaterService for ${intent.action}: $e")
++        false
++    }
++
++    /** Rule 8: keep the CPU awake for the copy and uncrypt until the reboot. */
++    fun holdWakeLock(context: Context) {
++        val powerManager = context.getSystemService(PowerManager::class.java)
++        wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Updater:autoInstall")
++            .apply {
++                setReferenceCounted(false)
++                acquire(WAKE_LOCK_TIMEOUT.toMillis())
++            }
++    }
++
++    fun releaseWakeLock() {
++        wakeLock?.takeIf { it.isHeld }?.release()
++        wakeLock = null
++    }
++}
+diff --git a/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallPolicy.kt b/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallPolicy.kt
+new file mode 100644
+index 0000000..f6eea5a
+--- /dev/null
++++ b/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallPolicy.kt
+@@ -0,0 +1,128 @@
++/*
++ * SPDX-FileCopyrightText: The LineageOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package org.lineageos.updater.autoinstall
++
++import org.lineageos.updater.data.Update
++import java.time.Duration
++import java.time.LocalDateTime
++
++/**
++ * The rules of unattended installation as pure functions: every input is a parameter, nothing
++ * here reads the device, so each rule can be checked on its own.
++ */
++object AutoInstallPolicy {
++    /** Night window in the device's time zone, [start, end); it may wrap past midnight. */
++    const val NIGHT_START_HOUR = 0
++    const val NIGHT_END_HOUR = 5
++
++    /** Free space that must remain after everything still to be written. */
++    const val RESERVE_BYTES = 256L * 1024 * 1024
++
++    /** Delays before resuming a failed download: 30 min, 1, 2, 4, 8 h, then stop. */
++    private val FIRST_DOWNLOAD_RETRY: Duration = Duration.ofMinutes(30)
++    const val MAX_DOWNLOAD_RETRIES = 5
++
++    /** Rule 1: only with the property set, and only on non-A/B devices. */
++    fun isEnabled(propertySet: Boolean, isABDevice: Boolean) = propertySet && !isABDevice
++
++    /** The candidate for automatic installation, or the reason why there is none. */
++    data class Pick(val update: Update?, val reason: String?)
++
++    /**
++     * Rules 3 and 4 at index level. Only the newest eligible update (from the server, not a
++     * local import, newer than the running build, same Android version) can be the candidate;
++     * when it was tried automatically before there is no candidate, never an older build.
++     */
++    fun pickCandidate(
++        updates: List<Update>,
++        buildTimestamp: Long,
++        sdkLevel: Int,
++        attemptedIds: Set<String>,
++    ): Pick {
++        val newest = updates
++            .filter {
++                it.downloadId != Update.LOCAL_ID &&
++                        it.downloadUrl != null &&
++                        it.timestamp > buildTimestamp &&
++                        it.osSdkLevel == sdkLevel
++            }
++            .maxByOrNull { it.timestamp }
++            ?: return Pick(null, "no newer update of this Android version")
++        if (newest.downloadId in attemptedIds) {
++            return Pick(null, "${newest.name} was already tried automatically")
++        }
++        return Pick(newest, null)
++    }
++
++    /**
++     * Rule 3 on the verified package's own signed metadata: newer build, same Android version,
++     * non-A/B package. Returns the reason for refusing, or null when it may be installed.
++     */
++    fun refuseByMetadata(
++        packageTimestamp: Long,
++        packageSdkLevel: Int,
++        packageIsAB: Boolean,
++        buildTimestamp: Long,
++        sdkLevel: Int,
++    ): String? = when {
++        packageIsAB -> "package is A/B"
++        packageTimestamp <= buildTimestamp ->
++            "package build $packageTimestamp is not newer than the running $buildTimestamp"
++        packageSdkLevel != sdkLevel -> "package is for SDK $packageSdkLevel, running $sdkLevel"
++        else -> null
++    }
++
++    fun isNight(hour: Int) = if (NIGHT_START_HOUR <= NIGHT_END_HOUR) {
++        hour >= NIGHT_START_HOUR && hour < NIGHT_END_HOUR
++    } else {
++        hour >= NIGHT_START_HOUR || hour < NIGHT_END_HOUR
++    }
++
++    /** Zero inside the night window, otherwise the time until it next opens. */
++    fun delayToNight(now: LocalDateTime): Duration {
++        if (isNight(now.hour)) return Duration.ZERO
++        var start = now.toLocalDate().atTime(NIGHT_START_HOUR, 0)
++        if (!start.isAfter(now)) start = start.plusDays(1)
++        return Duration.between(now, start)
++    }
++
++    /**
++     * Download errors in a row (1 = the first failure) to the delay before resuming, or null
++     * after [MAX_DOWNLOAD_RETRIES] retries: then the next update check starts again.
++     */
++    fun downloadRetryDelay(failures: Int): Duration? =
++        if (failures in 1..MAX_DOWNLOAD_RETRIES) {
++            FIRST_DOWNLOAD_RETRY.multipliedBy(1L shl (failures - 1))
++        } else {
++            null
++        }
++
++    /**
++     * Rule 7: bytes that must be free before acting: the rest of the download, a second copy
++     * of the package when the file is encrypted (UpdateInstaller copies it for uncrypt), and
++     * the reserve. For the install step pass downloadedBytes == packageSize.
++     */
++    fun bytesNeeded(packageSize: Long, downloadedBytes: Long, encrypted: Boolean): Long =
++        (packageSize - downloadedBytes).coerceAtLeast(0) +
++                (if (encrypted) packageSize else 0) +
++                RESERVE_BYTES
++
++    /**
++     * Rule 5 for the moment of installing (device idle is a job constraint). Returns the reason
++     * for waiting, or null when it may install now.
++     */
++    fun waitReason(
++        screenOn: Boolean,
++        charging: Boolean,
++        night: Boolean,
++        batteryLevelOk: Boolean,
++    ): String? = when {
++        screenOn -> "screen is on"
++        !charging && !night -> "not charging and outside the night window"
++        !batteryLevelOk -> "battery level too low"
++        else -> null
++    }
++}
+diff --git a/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallWorkers.kt b/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallWorkers.kt
+new file mode 100644
+index 0000000..40f0d4e
+--- /dev/null
++++ b/app/src/main/java/org/lineageos/updater/autoinstall/AutoInstallWorkers.kt
+@@ -0,0 +1,164 @@
++/*
++ * SPDX-FileCopyrightText: The LineageOS Project
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++package org.lineageos.updater.autoinstall
++
++import android.content.Context
++import android.os.PowerManager
++import android.util.Log
++import androidx.work.CoroutineWorker
++import androidx.work.ExistingWorkPolicy
++import androidx.work.WorkerParameters
++import org.lineageos.updater.UpdaterApplication
++import org.lineageos.updater.deviceinfo.DeviceInfoUtils
++import org.lineageos.updater.misc.Utils
++import org.lineageos.updater.util.OtaMetadataParser
++import java.time.LocalDateTime
++
++/** Starts or resumes the download of the candidate (enqueued with an unmetered network). */
++class AutoDownloadWorker(
++    context: Context,
++    params: WorkerParameters,
++) : CoroutineWorker(context, params) {
++    override suspend fun doWork(): Result {
++        if (!AutoInstall.isEnabled) return Result.success()
++        val context = applicationContext
++        synchronized(AutoInstall.lock) {
++            val controller = AutoInstall.syncController(context)
++            if (controller.isBusy) {
++                Log.i(TAG, "Download step: skipped, a download, verification or install is running")
++                return Result.success()
++            }
++            val pick = AutoInstall.candidate(context, controller)
++            val update = pick.update
++            if (update == null) {
++                Log.i(TAG, "Download step: nothing to do, ${pick.reason}")
++                AutoInstall.cancelInstall(context)
++                return Result.success()
++            }
++            if (update.hasVerifiedPackage()) {
++                Log.i(TAG, "Download step: ${update.name} is verified already, scheduling the install")
++                AutoInstall.enqueueInstall(context)
++                return Result.success()
++            }
++            val downloadDir = Utils.getDownloadPath(context)
++            val downloaded = update.file?.takeIf { it.exists() }?.length() ?: 0L
++            val needed = AutoInstallPolicy.bytesNeeded(
++                update.fileSize, downloaded, Utils.isEncrypted(context, downloadDir)
++            )
++            val free = downloadDir.usableSpace
++            if (free < needed) {
++                Log.i(TAG, "Download step: ${update.name} skipped, $free bytes free, $needed needed")
++                return Result.success()
++            }
++            Log.i(TAG, "Download step: downloading ${update.name} ($downloaded bytes present)")
++            AutoInstall.startDownload(context, update.downloadId)
++        }
++        return Result.success()
++    }
++
++    private companion object {
++        const val TAG = AutoInstall.TAG
++    }
++}
++
++/**
++ * Installs the verified candidate. Enqueued twice: with device idle + charging, and with
++ * device idle delayed to the night window ([AutoInstall.KEY_NIGHT]).
++ */
++class AutoInstallWorker(
++    context: Context,
++    params: WorkerParameters,
++) : CoroutineWorker(context, params) {
++    override suspend fun doWork(): Result {
++        if (!AutoInstall.isEnabled) return Result.success()
++        val context = applicationContext
++        val night = inputData.getBoolean(AutoInstall.KEY_NIGHT, false)
++        val step = if (night) "Night install" else "Install while charging"
++        synchronized(AutoInstall.lock) {
++            val controller = AutoInstall.syncController(context)
++            if (controller.isBusy) {
++                Log.i(TAG, "$step: waiting, a download, verification or install is running")
++                return later(context, night)
++            }
++            val pick = AutoInstall.candidate(context, controller)
++            val update = pick.update
++            val file = update?.file
++            if (update == null) {
++                Log.i(TAG, "$step: nothing to do, ${pick.reason}")
++                AutoInstall.cancelInstall(context)
++                return Result.success()
++            }
++            if (file == null || !update.hasVerifiedPackage()) {
++                Log.i(TAG, "$step: nothing to do, ${update.name} is not downloaded and verified")
++                AutoInstall.cancelInstall(context)
++                return Result.success()
++            }
++
++            // The index JSON is unsigned: decide on the verified package's own metadata.
++            val refusal = try {
++                val metadata = OtaMetadataParser(file)
++                AutoInstallPolicy.refuseByMetadata(
++                    metadata.timestamp, metadata.sdkLevel, metadata.isABUpdate,
++                    DeviceInfoUtils.buildDateTimestamp, DeviceInfoUtils.sdkLevel,
++                )
++            } catch (e: Exception) {
++                "cannot read the package metadata ($e)"
++            }
++            if (refusal != null) {
++                AutoInstall.rememberAttempt(context, update.downloadId)
++                Log.i(TAG, "$step: not installing ${update.name}: $refusal")
++                AutoInstall.cancelInstall(context)
++                return Result.success()
++            }
++
++            val battery = (context as UpdaterApplication).batteryMonitor.currentBatteryState
++            val wait = AutoInstallPolicy.waitReason(
++                screenOn = context.getSystemService(PowerManager::class.java).isInteractive,
++                charging = battery.isCharging,
++                night = AutoInstallPolicy.isNight(LocalDateTime.now().hour),
++                batteryLevelOk = battery.isLevelOk,
++            )
++            if (wait != null) {
++                Log.i(TAG, "$step: waiting, $wait (battery ${battery.level} %)")
++                return later(context, night)
++            }
++
++            val needed = AutoInstallPolicy.bytesNeeded(
++                file.length(), file.length(), Utils.isEncrypted(context, file)
++            )
++            val free = file.parentFile?.usableSpace ?: 0L
++            if (free < needed) {
++                Log.i(TAG, "$step: waiting, $free bytes free, $needed needed")
++                return later(context, night)
++            }
++
++            if (!AutoInstall.rememberAttempt(context, update.downloadId)) {
++                Log.i(TAG, "$step: could not store the attempt, not installing")
++                return later(context, night)
++            }
++            AutoInstall.holdWakeLock(context)
++            Log.i(TAG, "$step: installing ${update.name}")
++            if (!AutoInstall.startInstall(context, update.downloadId)) {
++                // The attempt stays recorded: no retry loop, the log line above says why.
++                AutoInstall.releaseWakeLock()
++            }
++        }
++        return Result.success()
++    }
++
++    /** Transient "not now": again at the next idle window, or at the next night. */
++    private fun later(context: Context, night: Boolean): Result {
++        if (night && !AutoInstallPolicy.isNight(LocalDateTime.now().hour)) {
++            AutoInstall.enqueueNightInstall(context, ExistingWorkPolicy.REPLACE)
++            return Result.success()
++        }
++        return Result.retry()
++    }
++
++    private companion object {
++        const val TAG = AutoInstall.TAG
++    }
++}
+diff --git a/app/src/main/java/org/lineageos/updater/controller/UpdaterService.java b/app/src/main/java/org/lineageos/updater/controller/UpdaterService.java
+index 58eb810..430eece 100644
+--- a/app/src/main/java/org/lineageos/updater/controller/UpdaterService.java
++++ b/app/src/main/java/org/lineageos/updater/controller/UpdaterService.java
+@@ -25,6 +25,7 @@ import org.lineageos.updater.R;
+ import org.lineageos.updater.UpdaterApplication;
+ import org.lineageos.updater.UpdaterReceiver;
+ import org.lineageos.updater.UpdatesActivity;
++import org.lineageos.updater.autoinstall.AutoInstall;
+ import org.lineageos.updater.data.Update;
+ import org.lineageos.updater.data.UpdateStatus;
+ import org.lineageos.updater.data.UserPreferencesRepository;
+@@ -56,6 +57,7 @@ public class UpdaterService extends Service {
+     public static final int DOWNLOAD_RESUME = 0;
+     public static final int DOWNLOAD_PAUSE = 1;
+     public static final int DOWNLOAD_CANCEL = 2;
++    public static final int DOWNLOAD_START = 3;
+ 
+     private static final int NOTIFICATION_ID = 10;
+ 
+@@ -157,6 +159,22 @@ public class UpdaterService extends Service {
+ 
+     @Override
+     public int onStartCommand(Intent intent, int flags, int startId) {
++        // Started from the background by AutoInstall: go foreground at once, and drop it
++        // again when the command started nothing.
++        boolean auto = AutoInstall.isAutoIntent(intent);
++        if (auto) {
++            startForeground(NOTIFICATION_ID, mNotificationBuilder.build(),
++                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
++        }
++        int result = handleStartCommand(intent);
++        if (auto && !mUpdaterController.isBusy()) {
++            stopForeground(STOP_FOREGROUND_REMOVE);
++            tryStopSelf();
++        }
++        return result;
++    }
++
++    private int handleStartCommand(Intent intent) {
+         Log.d(TAG, "Starting service");
+ 
+         if (intent == null || intent.getAction() == null) {
+@@ -179,6 +197,13 @@ public class UpdaterService extends Service {
+                 mUpdaterController.pauseDownload(downloadId);
+             } else if (action == DOWNLOAD_CANCEL) {
+                 mUpdaterController.cancelDownload(downloadId);
++            } else if (action == DOWNLOAD_START) {
++                Update update = mUpdaterController.getUpdate(downloadId);
++                if (update != null && update.getFile() != null && update.getFile().exists()) {
++                    mUpdaterController.resumeDownload(downloadId);
++                } else {
++                    mUpdaterController.startDownload(downloadId);
++                }
+             } else {
+                 Log.e(TAG, "Unknown download action");
+             }
+@@ -260,6 +285,7 @@ public class UpdaterService extends Service {
+     }
+ 
+     private void handleUpdateStatusChange(Update update) {
++        AutoInstall.onStatusChange(this, update);
+         switch (update.getStatus()) {
+             case DELETED: {
+                 stopForeground(STOP_FOREGROUND_DETACH);
+diff --git a/app/src/main/java/org/lineageos/updater/deviceinfo/DeviceInfoUtils.kt b/app/src/main/java/org/lineageos/updater/deviceinfo/DeviceInfoUtils.kt
+index 126a7a4..5e65475 100644
+--- a/app/src/main/java/org/lineageos/updater/deviceinfo/DeviceInfoUtils.kt
++++ b/app/src/main/java/org/lineageos/updater/deviceinfo/DeviceInfoUtils.kt
+@@ -13,6 +13,7 @@ object DeviceInfoUtils : SettingsLibDeviceInfoUtils() {
+ 
+     private const val PROP_AB_DEVICE = "ro.build.ab_update"
+     private const val PROP_ALLOW_MAJOR_UPGRADES = "lineage.updater.allow_major_upgrades"
++    private const val PROP_AUTO_INSTALL = "lineage.updater.auto_install"
+     private const val PROP_BUILD_DATE = "ro.build.date.utc"
+     private const val PROP_BUILD_VERSION = "ro.lineage.build.version"
+     private const val PROP_BUILD_VERSION_INCREMENTAL = "ro.build.version.incremental"
+@@ -53,6 +54,10 @@ object DeviceInfoUtils : SettingsLibDeviceInfoUtils() {
+     val isDowngradingAllowed: Boolean
+         get() = SystemProperties.getBoolean(PROP_UPDATER_ALLOW_DOWNGRADING, false)
+ 
++    @JvmStatic
++    val isAutoInstallEnabled: Boolean
++        get() = SystemProperties.getBoolean(PROP_AUTO_INSTALL, false)
++
+     @JvmStatic
+     val isMajorUpdateAllowed: Boolean
+         get() = SystemProperties.getBoolean(PROP_ALLOW_MAJOR_UPGRADES, false)
+diff --git a/app/src/main/java/org/lineageos/updater/updatescheck/UpdatesCheckWorker.kt b/app/src/main/java/org/lineageos/updater/updatescheck/UpdatesCheckWorker.kt
+index 49dce2a..3c20580 100644
+--- a/app/src/main/java/org/lineageos/updater/updatescheck/UpdatesCheckWorker.kt
++++ b/app/src/main/java/org/lineageos/updater/updatescheck/UpdatesCheckWorker.kt
+@@ -22,6 +22,7 @@ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.SupervisorJob
+ import kotlinx.coroutines.launch
+ import org.lineageos.updater.UpdaterApplication
++import org.lineageos.updater.autoinstall.AutoInstall
+ import org.lineageos.updater.data.CheckInterval
+ import kotlin.time.Duration.Companion.hours
+ import kotlin.time.toJavaDuration
+@@ -36,6 +37,9 @@ class UpdatesCheckWorker(
+             val fetchedAt = application.updatesRepository.fetchUpdates()
+             if (fetchedAt != null) {
+                 application.appStateRepository.setLastCheckedTimestamp(fetchedAt)
++                AutoInstall.onCheckFinished(applicationContext)
++            } else if (AutoInstall.isEnabled) {
++                return Result.retry() // no validated network yet: do not lose the boot check
+             }
+             Result.success()
+         } catch (e: Exception) {

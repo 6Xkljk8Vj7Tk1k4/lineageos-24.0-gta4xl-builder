@@ -21,18 +21,20 @@ export ROOMSERVICE_BRANCHES="${ROOMSERVICE_BRANCHES-lineage-23.2}"
 # UNOFFICIAL, NIGHTLY, SNAPSHOT, EXPERIMENTAL or RELEASE; vendor/lineage turns anything
 # it does not accept into UNOFFICIAL.
 LINEAGE_BUILDTYPE="${LINEAGE_BUILDTYPE:-UNOFFICIAL}"
-# Kernel: a fork with the eBPF backports Android 17 expects at the "5.10" level, the
-# cgroup v2 freezer and security fixes (see README). Android 17 does not boot on the
-# lineage-23.2 kernel, so the fork is the default for lineage-24.0. Empty = the kernel
-# from the LineageOS manifest. Any git URL the container can reach works, including
-# file:///home/builder/... for a mounted local clone.
+# Kernel: a fork, branch gta4xl-4.19: Linux 4.19 (Samsung's Exynos 850 tree with this
+# tablet's support added, merged with the CIP project's 4.19 stable branch), with the eBPF
+# backports Android 17 expects at the "5.10" level and security fixes (see README). Android
+# 17 does not boot on the lineage-23.2 kernel, so the fork is the default for lineage-24.0.
+# KERNEL_REVISION=gta4xl-24.0 builds the fork's archived 4.14 kernel. Empty KERNEL_REPO_URL =
+# the kernel from the LineageOS manifest. Any git URL the container can reach works,
+# including file:///home/builder/... for a mounted local clone.
 if [ "$BRANCH" = "lineage-24.0" ]; then
     _kernel_default="https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl.git"
 else
     _kernel_default=""
 fi
 KERNEL_REPO_URL="${KERNEL_REPO_URL-$_kernel_default}"
-KERNEL_REVISION="${KERNEL_REVISION-gta4xl-24.0}"
+KERNEL_REVISION="${KERNEL_REVISION-gta4xl-4.19}"
 # Kernel version reported to the BPF loaders (ro.bpf.kver_override). Only set together with
 # the fork: the manifest kernel lacks the backports and would boot-loop with it.
 KERNEL_BPF_KVER="${KERNEL_BPF_KVER-5.10.239}"
@@ -65,6 +67,11 @@ KEEP_GOING="${KEEP_GOING:-false}"
 # sets lineage.updater.uri and writes the update metadata next to the zip. Empty = the
 # Updater app keeps LineageOS's own server, which has nothing for unofficial builds.
 OTA_BASE_URL="${OTA_BASE_URL-}"
+# true = the Updater app downloads and installs updates from that server by itself: it checks
+# when the tablet starts, downloads on an unmetered network and installs while the screen is
+# off, on the charger or between midnight and 5 a.m. (property lineage.updater.auto_install,
+# patches/lineage-24.0/packages/apps/Updater). Only together with OTA_BASE_URL.
+OTA_AUTO_INSTALL="${OTA_AUTO_INSTALL:-false}"
 
 # --- Tweaks; an empty value (e.g. -e NTP_SERVER=) keeps LineageOS's behaviour ---
 # DNS servers used only when DHCP hands out none (Android's fallback is Google's).
@@ -84,6 +91,10 @@ DEBLOAT_PACKAGES="${DEBLOAT_PACKAGES-Recorder Twelve Seedvault Backgrounds LiveW
 # the proprietary files in TheMuppets' lineage-23.2, which nothing in this build can raise)
 # as current instead of a permanent "out of date". The date shown stays the real one.
 TRUST_VENDOR_PATCH_FINAL="${TRUST_VENDOR_PATCH_FINAL-true}"
+# Window background blur (app drawer, notification shade). The device tree turns it on, and
+# the Mali-G72 cannot keep up at 2000x1200: the median frame of the app drawer animation
+# takes 37 ms with blur and 14 ms without. "true" keeps the device tree's setting.
+WINDOW_BLUR="${WINDOW_BLUR-false}"
 # Developer options visible without tapping the build number seven times.
 DEVELOPER_OPTIONS_VISIBLE="${DEVELOPER_OPTIONS_VISIBLE-true}"
 # "Advanced restart" (recovery and bootloader in the power menu) on by default.
@@ -524,8 +535,11 @@ GEN_PACKAGES=""
 if [ -n "$OTA_BASE_URL" ]; then
     case "$OTA_BASE_URL" in https://*) ;; *) echo "!!! OTA_BASE_URL must start with https:// (the Updater refuses anything else)"; exit 1 ;; esac
     OTA_URI="${OTA_BASE_URL%/}/api/v1/{device}/{type}/"
-    echo ">>> Update server: ${OTA_URI}"
+    echo ">>> Update server: ${OTA_URI} (unattended installs: ${OTA_AUTO_INSTALL})"
     echo "PRODUCT_PRODUCT_PROPERTIES += lineage.updater.uri=${OTA_URI}" >> "$GEN_MK"
+    if [ "$OTA_AUTO_INSTALL" = "true" ]; then
+        echo "PRODUCT_PRODUCT_PROPERTIES += lineage.updater.auto_install=true" >> "$GEN_MK"
+    fi
 fi
 
 # NTP: config_ntpServers (an array since Android 14). The device tree still sets the old,
@@ -637,6 +651,24 @@ if [ -n "$KERNEL_REPO_URL" ] && [ -n "$KERNEL_BPF_KVER" ]; then
     echo ">>> ro.bpf.kver_override=${KERNEL_BPF_KVER}"
     echo "PRODUCT_PRODUCT_PROPERTIES += ro.bpf.kver_override=${KERNEL_BPF_KVER}" >> "$GEN_MK"
 fi
+# Kernel 4.19 and newer: the video HAL (libExynosVideoApi) compiles against the uapi headers
+# generated from the kernel tree, and those define the HEVC and VP9 control ids themselves
+# (V4L2_CID_MPEG_VIDEO_HEVC_*_QP, _PROFILE, _LEVEL, VP9_PROFILE). The device tree tells the
+# HAL "4.14", so its exynos_mfc_media.h would define them a second time, with Samsung's
+# numbers, and the build stops (-Werror). This flag switches the HAL to the kernel's ids, as
+# on Exynos 850 devices; the fork's MFC driver knows both sets.
+KSRC_SERIES=$(awk '/^VERSION = /{v=$3} /^PATCHLEVEL = /{p=$3} END{print v"."p}' "kernel/samsung/${DEVICE}/Makefile" 2>/dev/null || true)
+case "$KSRC_SERIES" in
+    4.19|[5-9].*)
+        echo ">>> Kernel $KSRC_SERIES: video HAL with the kernel's V4L2 control ids (MAINLINE_FEATURE_IN_SINCE_4_19)"
+        echo "\$(call soong_config_set_bool,openmax,MAINLINE_FEATURE_IN_SINCE_4_19,true)" >> "$GEN_MK" ;;
+esac
+# Window blur off: a product property overrides the device tree's vendor.prop (init loads
+# the partitions in the order system, vendor, odm, product; the later one wins).
+if [ "$WINDOW_BLUR" != "true" ]; then
+    echo ">>> ro.surface_flinger.supports_background_blur=0 (WINDOW_BLUR=$WINDOW_BLUR)"
+    echo "PRODUCT_PRODUCT_PROPERTIES += ro.surface_flinger.supports_background_blur=0" >> "$GEN_MK"
+fi
 if [ -n "$GEN_PACKAGES" ]; then echo "PRODUCT_PACKAGES +=$GEN_PACKAGES" >> "$GEN_MK"; fi
 if [ -f "$DEVICE_MK" ]; then
     cat >> "$DEVICE_MK" <<EOF
@@ -659,6 +691,19 @@ if [ -d out ] && [ "$(cat "$TWEAKS_STAMP" 2>/dev/null)" != "$TWEAKS_STATE" ]; th
     run mka installclean
 fi
 export LINEAGE_BUILDTYPE
+
+# A kernel of another series than the one the objects in out/ were built from (4.14 to 4.19
+# or back): kbuild does not clean up after a foreign tree (generated headers, host scripts
+# and objects stay), so the kernel's object directories go and the kernel builds from
+# scratch (a minute). Other commits of the same series remove nothing.
+KOBJ="out/target/product/${DEVICE}/obj/KERNEL_OBJ"
+if [ -f "$KOBJ/include/config/kernel.release" ] && [ -n "$KSRC_SERIES" ]; then
+    kobj_series=$(cut -d. -f1,2 "$KOBJ/include/config/kernel.release")
+    if [ "$KSRC_SERIES" != "$kobj_series" ]; then
+        echo ">>> Kernel $KSRC_SERIES, the objects in out/ are from $kobj_series - removing KERNEL_OBJ, DTB_OBJ and DTBO_OBJ"
+        rm -rf "$KOBJ" "out/target/product/${DEVICE}/obj/DTB_OBJ" "out/target/product/${DEVICE}/obj/DTBO_OBJ"
+    fi
+fi
 
 # 11. Build
 keep=()

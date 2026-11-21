@@ -4,45 +4,50 @@ Unofficial builds of **LineageOS 24.0 (Android 17)** for the **Samsung Galaxy Ta
 This project is not affiliated with LineageOS or Samsung.
 
 LineageOS supports this tablet officially up to 23.2 (Android 16), and its device trees, kernel and proprietary files have no `lineage-24.0` branch.
-This repository builds LineageOS 24.0 from the 23.2 device trees: it carries the changes Android 17 needs as patch files (`patches/lineage-24.0/`), applied at build time, and replaces the kernel with a [fork](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl) that has the kernel features Android 17 requires and security fixes nobody else ships for this kernel any more (see [The kernel](#the-kernel)).
+This repository builds LineageOS 24.0 from the 23.2 device trees: it carries the changes Android 17 needs as patch files (`patches/lineage-24.0/`), applied at build time, and replaces the tablet's 4.14 kernel with a [fork](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl) on Linux 4.19 that has the kernel features Android 17 requires and gets security fixes again (see [The kernel](#the-kernel)).
 Everything runs in a Podman container, so the host only needs Podman, Git and disk space.
 
 How it started: my Tab S6 Lite ran LineageOS 23.2, and I did not want to wait for an official LineageOS 24.0.
 With the help of [Claude](https://claude.ai) (Anthropic's AI assistant, used through Claude Code) it got Android 17.
-Claude did most of the work — porting the device tree, finding out why each test boot failed, merging and backporting the kernel changes, reviewing the kernel's security and writing this documentation — while I tested on the tablet.
+Claude did most of the work — porting the device tree, finding out why each test boot failed, moving the tablet's drivers to a newer kernel, reviewing the kernel's security, writing the tests and this documentation — while I tested on the tablet.
 
 <p align="center">
-  <img src="docs/android-version.png" width="300" alt="Settings, About tablet, Android version: Android 17, LineageOS 24.0-20261102-UNOFFICIAL-gta4xl, Android security update 1 October 2026, vendor security patch level 1 May 2024, baseband P615XXSAFYD1, kernel 4.14.357-openela-g6134261030f1">
+  <img src="docs/android-version.png" width="300" alt="Settings, About tablet, Android version: Android 17, LineageOS 24.0-20261120-UNOFFICIAL-gta4xl, Android security update 1 November 2026, vendor security patch level 1 May 2024, baseband P615XXSAFYD1, kernel 4.19.325-st21-g5d64934cc775">
 </p>
 
 ## Status
 
-Tested on one SM-P615 with Samsung's firmware P615XXSAFYD1, used every day, and with an automated test of every component over adb (`tools/tablet-test.sh`). On the build of 2 November 2026, 83 of 84 checks passed; the one failure was SELinux denials when the camera opens, fixed since by patch 0022.
+Tested on one SM-P615 with Samsung's firmware P615XXSAFYD1, used every day, and with an automated test of every component over adb (`tools/tablet-test.sh`, see [Tools](#tools)).
+The table says what that test and daily use show.
 
 | Feature | Status |
 | --- | --- |
-| Boot, display, touch, setup wizard | Works (about 25 s to the lock screen) |
-| Wi-Fi | Works (tested on a WPA2 network) |
-| Bluetooth | Works |
-| Audio | Works (speaker) |
-| Camera | Works (photos and video with the Aperture app) |
-| Video | Hardware decoding and encoding |
-| Sensors | Work (23 sensors register, among them accelerometer, gyroscope and light sensor) |
+| Boot, display, touch, setup wizard | Works (about 26 s from power-on to the lock screen) |
+| Wi-Fi | Works (tested on a WPA2 network; networks on 2.4 and 5 GHz are found) |
+| Bluetooth | Works (audio devices not tested) |
+| Audio | Speakers and microphone work (the test plays a tone and records it); headphone jack not tested |
+| Cameras | Rear and front: photos, and video with sound (Aperture app) |
+| Video | Hardware decoding and encoding of H.264, HEVC, VP8, VP9, MPEG-4 and H.263 |
+| Sensors | Work (23 sensors register; accelerometer, gyroscope and light sensor deliver) |
 | S Pen | Works |
-| Charging, battery | Work |
-| Sleep | The processor sleeps when the screen is off (while no computer is connected); Wi-Fi reconnects after waking up |
-| Storage | File-based encryption; reads from internal storage at about 440 MB/s |
-| SIM, calls, mobile data | Not tested (no SIM card at hand): the modem and the radio interface start, airplane mode works |
-| GPS | The GNSS service starts; a position fix has not been tested |
+| Charging, battery | Work from a USB port and a charger; fast chargers (AFC, USB PD) not tested with this kernel |
+| Sleep | The tablet suspends when the screen is off and no computer is connected, and wakes up by the power key, an alarm or Wi-Fi |
+| Storage | File-based encryption; reads from internal storage at about 490 MB/s |
+| SIM, mobile data | Registers on LTE and mobile data works (one SIM tested); calls and SMS not tested |
+| GPS | The receiver starts and receives satellites; a position fix has not been tested |
+| USB | adb, file transfer mode (MTP) and USB tethering work (a computer on the cable reaches the internet through the tablet, IPv4 and IPv6) |
+| Wi-Fi hotspot | Starts and sets up forwarding. This Wi-Fi chip cannot be a client and an access point at once, so Android switches the Wi-Fi client off while the hotspot is on and on again afterwards. Tested from the tablet's side only (no second device was connected) |
+| Updates | With an own update server, also unattended (see [Update server](#update-server-optional)) |
 | SELinux | Enforcing |
-| Not tested | Wi-Fi hotspot, headphone jack, microSD card, USB accessories |
+| Not tested | headphone jack, microSD card, USB accessories, Bluetooth audio, calls and SMS, a device connected through the hotspot |
 
 ### Known limitations
 
 - **Unofficial port.** The device trees are LineageOS's 23.2 trees with the patches in this repository. When LineageOS releases an official 24.0 build for the gta4xl, switch to it (that needs a data wipe, see [Installation](#installation)).
 - **Samsung's proprietary files are from 2024.** The vendor partition carries Samsung's files from firmware P615XXS8FXE4, the newest LineageOS uses for this tablet (vendor security patch level 2024-05-01). The Android security update shown in Settings covers the LineageOS system; the kernel gets the fixes listed under [The kernel](#the-kernel); Samsung's closed-source parts are not updated.
-- **No over-the-air updates.** The Updater app finds nothing for these builds. To update, install a newer build the same way (sideload), or run your own update server (see [Update server](#update-server-optional)).
+- **No over-the-air updates from this project.** The Updater app finds nothing for these builds. To update, install a newer build the same way (sideload), or run your own update server (see [Update server](#update-server-optional)).
 - **The LTE model only.** Do not install this on the Wi-Fi-only Tab S6 Lite (SM-P610, `gta4xlwifi`) or on the 2022 and 2024 Tab S6 Lite (SM-P613, SM-P619, SM-P620, SM-P625): they need different builds.
+- **Seen once, cause unknown:** after an unlock a kernel thread of Samsung's TrustZone driver kept one processor core busy (the tablet stays warm and loses charge) until that core was taken offline and online again; a restart clears it too. `tools/tablet-test.sh` reports such a thread.
 
 ## Download
 
@@ -99,28 +104,29 @@ To update the firmware of a tablet that already runs LineageOS, see the [Lineage
 
 ## The kernel
 
-Android 17 expects eBPF features of Linux 5.10 (ring buffers, mmapable maps, `BPF_CGROUP_INET_SOCK_RELEASE`, `bpf_link`) and freezes cached apps with the cgroup v2 freezer.
-LineageOS's 4.14 kernel for this tablet only has the backports up to the 5.4 level, and Android 17 boot-loops on it.
-The build therefore uses the fork **[6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl)**, branch `gta4xl-24.0`: LineageOS's `lineage-23.2` kernel merged with PhoenixKernel's eBPF-5.10 backports (the same series as in the official LineageOS 24.0 kernels for Motorola's Exynos 9610 phones), 58 cgroup/freezer and `clone3` commits from the Motorola exynos9610 `lineage-24.0` kernel, and security fixes.
-`build.sh` swaps it in with a local manifest and sets `ro.bpf.kver_override=5.10.239`, as the other official 24.0 devices on 4.14 and 4.19 kernels do.
+Samsung never released a kernel newer than Linux 4.14 for this tablet's processor (Exynos 9611), and the 4.14 stable series ended in March 2026.
+The build uses the fork **[6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl)**, branch `gta4xl-4.19`: **Linux 4.19.325**, made by adding this tablet to Samsung's 4.19 tree for the Exynos 850 as LineageOS maintains it for Android 17, and merged with the 4.19 stable backports of the [Civil Infrastructure Platform](https://www.cip-project.org/) (CIP), which continues the series after kernel.org ended it.
+Its [README](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl/blob/gta4xl-4.19/README.md) has the details: which drivers come from the tablet's 4.14 kernel and which from the 4.19 tree, what was measured, and what is still open.
+`build.sh` swaps the fork in with a local manifest, sets `ro.bpf.kver_override=5.10.239` as the other LineageOS 24.0 devices on 4.14 and 4.19 kernels do (the kernel has the eBPF features Android 17 expects at the 5.10 level), and builds the video HAL with the kernel's own control ids.
 
-The 4.14 stable series ended in March 2026, and Samsung's own kernel source releases for this tablet bring only a few driver changes (the Mali fixes of its 2025 release are in the fork), so the fork carries its own security work (details in its [README](https://github.com/6Xkljk8Vj7Tk1k4/android_kernel_samsung_gta4xl/blob/gta4xl-24.0/README.gta4xl-24.0.md)):
+What the fork does beyond running the tablet:
 
-- **28 CVEs fixed** by backports or hand-ports, five of them on CISA's list of vulnerabilities exploited in the wild: CVE-2024-4610 and CVE-2023-26083 (Mali GPU driver), CVE-2025-38352 (posix CPU timers, used against Android) and the forensic-tool USB chain CVE-2024-50302 / CVE-2024-53197.
-- **Remote network bugs** in IPv4, IPv6, TCP and cfg80211 that a host on the same network can trigger, among them CVE-2026-98432 (rated Critical by Red Hat).
-- **9 bugs without a CVE**, found by auditing the vendor code an app or a Wi-Fi access point can reach: three in Samsung's ION memory allocator and six in the SCSC Wi-Fi driver, among them an out-of-bounds write that an access point could trigger with its association response, before any keys are exchanged.
-- **Hardened configuration**: SLAB freelist randomisation and hardening, `BUG_ON_DATA_CORRUPTION`, `PANIC_ON_OOPS`, restricted `dmesg`, SYN cookies, and about 150 options for hardware and protocols this tablet does not have removed.
-- **Monthly review** of every new kernel CVE against the files this configuration actually compiles: `tools/kernel-cve-check.sh`, with every decision recorded in `tools/kernel-cve-triage.tsv` (480 CVEs assessed so far).
+- **Upstream fixes again**: CIP's branch is merged once a month (5036 backports at the first merge), which covers the generic kernel as far as CIP backports it.
+- **Security fixes that no 4.19 branch has**: fixes for Samsung's drivers and Android's additions, and upstream fixes that were never backported, among them CVE-2024-4610 and CVE-2023-26083 (Mali GPU driver, both exploited in the wild), CVE-2025-38352 (posix CPU timers, used against Android), and remote ones in IPv4, IPv6, TCP and cfg80211.
+- **Bugs without a CVE**, found by reading the vendor code that an app or a Wi-Fi access point can reach: in Samsung's ION memory allocator and in the SCSC Wi-Fi driver, among them an out-of-bounds write that an access point could trigger with its association response, before any keys are exchanged.
+- **Hardened configuration**: SLAB freelist randomisation and hardening, `BUG_ON_DATA_CORRUPTION`, `PANIC_ON_OOPS`, restricted `dmesg`, SYN cookies, zero-initialised stack variables, and the drivers and protocols this tablet does not have removed. `tools/tablet-test.sh` compares the configuration with what Android asks for and knows the reason for every option that is left out.
+- **Monthly review** of every new kernel CVE against the files this configuration actually compiles: `tools/kernel-cve-check.sh`, with every decision recorded in `tools/kernel-cve-triage.tsv` and `tools/kernel-cve-triage-4.19.tsv`.
+- **Speed**: the kernel runs under Samsung's hypervisor, which makes some operations unusually expensive on this board; with a few changes for that, system calls take a third less time than on the 4.14 kernel and apps start about 7 % faster.
 
-A newer kernel is not an option: Samsung's drivers for this SoC (GPU, Wi-Fi/Bluetooth, modem, camera, display, audio, TEE) exist only for 4.14 and talk to closed-source userspace over private interfaces.
 Still open in the Mali GPU driver: CVE-2024-0671 and CVE-2025-0427, whose fixes exist only in driver releases newer than any public source.
+The fork's previous kernel, 4.14 with the same Android 17 backports (branch `gta4xl-24.0`), is archived; `-e KERNEL_REVISION=gta4xl-24.0` still builds it.
 
 ## Building
 
 ### What you need
 
 - A computer with **Linux** (these steps use Ubuntu or Fedora). Windows with WSL2 may work but is untested.
-- About **350 GB of free disk space**: the sources take about 190 GB, the build about 130 GB, the compiler cache up to 30 GB.
+- About **350 GB of free disk space**: the sources take about 190 GB, the build about 135 GB, the compiler cache up to 30 GB.
 - **32 GB of RAM**, or less RAM plus a large swap file (see step 2). Less memory only makes the build slower.
 - A fast internet connection: the first download is several tens of gigabytes.
 - Time: the first download takes a few hours, the first build several more (about 4.5 hours on an 8-core desktop with 32 GB). Later builds take 20–60 minutes.
@@ -248,15 +254,17 @@ Options are passed to step 6 with `-e NAME=value`. An empty value (for example `
 | `BUILD_JOBS` / `SYNC_JOBS` | number of CPU threads / `4` | Parallel build and download jobs; fewer build jobs need less memory |
 | `CCACHE_SIZE` | `30G` | Size limit of the compiler cache |
 | `MIN_FREE_GB` | `15` | The build stops when the disk has less free space than this |
-| `KERNEL_REPO_URL` / `KERNEL_REVISION` | the fork / `gta4xl-24.0` | Kernel repository and branch; empty `KERNEL_REPO_URL` = LineageOS's 23.2 kernel, which does not boot Android 17 |
+| `KERNEL_REPO_URL` / `KERNEL_REVISION` | the fork / `gta4xl-4.19` | Kernel repository and branch; `gta4xl-24.0` is the fork's archived 4.14 kernel; empty `KERNEL_REPO_URL` = LineageOS's 23.2 kernel, which does not boot Android 17 |
 | `FALLBACK_DNS` | `1.1.1.1 1.0.0.1` | DNS servers used only when the Wi-Fi network's DHCP hands out none (Android's own fallback is Google's) |
 | `NTP_SERVER` | `pool.ntp.org` | Time server instead of Google's `time.android.com` |
 | `DEBLOAT_PACKAGES` | `Recorder Twelve Seedvault Backgrounds LiveWallpapersPicker PhotoTable BasicDreams Profiles` | Apps left out of the image: recorder, music player, backup app, wallpapers, screen savers and LineageOS's profiles. Empty = keep them all |
 | `TRUST_VENDOR_PATCH_FINAL` | `true` | LineageOS's Trust page rates the vendor security patch level of Samsung's files (2024-05-01, the newest LineageOS uses for this tablet) as current instead of showing a permanent warning; Settings still shows the real date |
 | `DEVELOPER_OPTIONS_VISIBLE` | `true` | Developer options visible without tapping the build number seven times |
 | `ADVANCED_RESTART` | `true` | Recovery and bootloader in the power menu's restart options |
+| `WINDOW_BLUR` | `false` | Background blur behind the app drawer and the notification shade. Off because this GPU cannot keep up with it at the screen's resolution (the animation's median frame takes 37 ms with blur, 14 ms without); `true` keeps LineageOS's setting |
 | `PRIVATE_DNS_HOST` | empty | A DNS-over-TLS server as the default Private DNS (strict mode); off by default because networks that block port 853 would have no DNS |
 | `OTA_BASE_URL` | empty | Your update server, see below |
+| `OTA_AUTO_INSTALL` | `false` | `true` (with `OTA_BASE_URL`): the tablet downloads and installs updates from your server by itself, see below |
 | `CAPTIVE_PORTAL_HOST` | empty | A host for Android's connectivity check instead of Google's, see below |
 | `WITH_ADB_INSECURE` | empty | `true`: adb without authorization from the first boot (LineageOS's switch). Only for test builds, never for builds you give to others |
 
@@ -268,6 +276,10 @@ With `-e OTA_BASE_URL=https://ota.example.org`, the build points LineageOS's Upd
 `OTA_REMOTE=user@host:/srv/ota tools/ota-upload.sh` uploads both over SSH into the layout the Updater expects (`<OTA_BASE_URL>/api/v1/gta4xl/<type>/` for the metadata, `<OTA_BASE_URL>/gta4xl/` for the zip).
 `ota/Caddyfile` and `ota/ota.container` are an example server (a Caddy container for rootless Podman) to put behind a reverse proxy that handles TLS for your domain; the Updater only accepts https.
 
+With `-e OTA_AUTO_INSTALL=true` in addition, the tablet updates itself (`patches/lineage-24.0/packages/apps/Updater`): the Updater checks for a new build when the tablet starts, downloads it on an unmetered network and installs it while the screen is off and the tablet is idle, on the charger or between midnight and 5 a.m.
+It only takes the newest build of the same Android version, checks the package's signed metadata before it starts, and tries each package once; a failed download is tried again later.
+Without the option the Updater works as in LineageOS: it shows the update and waits for you.
+
 With `-e CAPTIVE_PORTAL_HOST=ota.example.org`, Android's connectivity check asks that host instead of Google's servers.
 The host must answer `/generate_204` with a bare `204 No Content` over both http and https, without redirecting http to https; the example Caddyfile does that, the proxy in front must let it through.
 The build checks the host first and keeps Google's check if it does not answer correctly, because otherwise every Wi-Fi network would look like it has no internet.
@@ -276,19 +288,19 @@ The build checks the host first and keeps Google's check if it does not answer c
 
 All run on the computer; the tablet ones over adb.
 
-- `tools/tablet-test.sh`: tests the installed build component by component (boot state, services, storage, memory and CPU, battery, display, input, sensors, Wi-Fi, NTP, Bluetooth, modem, location, audio, video encoding, camera, video playback, security settings, sleep) and records the log lines, SELinux denials and crashes each test caused, in `build_output/tablet-test/`. Needs Developer options → Rooted debugging; it changes radio settings during the test and restores them.
+- `tools/tablet-test.sh`: tests the installed build component by component and records the log lines, SELinux denials and crashes each test caused, in `build_output/tablet-test/`. It follows three lists: LineageOS's [device support requirements](https://github.com/LineageOS/charter/blob/main/device-support-requirements.md) (what has to work, and equal Samsung's system, on a device LineageOS supports), Android's vendor test suite (the kernel's interfaces; `vintf` on the tablet: manifests, compatibility matrices, kernel configuration, every declared HAL registered), and what went wrong on this tablet during the port. Among its 30 parts: boot time and how the last start ended, storage wear, CPU cores going offline and online, battery wear and charging current, display, touch and S Pen controllers, events from each sensor, Wi-Fi and Bluetooth with their factory addresses, registration and mobile data with a SIM, the GNSS receiver, speaker and microphone (it plays a tone and records it), keys in the TEE, every hardware video encoder and decoder, both cameras (it decodes the photos and the clip and measures the clip's sound), every preinstalled app, the security settings, and one suspend/resume cycle of all drivers. Optional parts switch the USB port to file transfer and tethering (`USB=1`), start the Wi-Fi hotspot (`HOTSPOT=1`) and restart the tablet (`REBOOT=1`). It needs Developer options → Rooted debugging; it changes radio settings, location and the media volume during the test and puts them back. For the checks that look into pictures and clips the computer needs `python3` with Pillow and numpy, and `ffmpeg`.
 - `tools/tablet-setup.sh`: after an installation, installs every APK from a folder and connects to Wi-Fi.
-- `tools/kernel-build.sh` and `tools/kernel-flash.sh`: build the kernel fork on its own in a few minutes and test it on the tablet without building the whole system (with a backup and a restore path).
-- `tools/kernel-cve-check.sh`: the monthly kernel CVE review described under [The kernel](#the-kernel).
+- `tools/kernel-build.sh` and `tools/kernel-flash.sh`: build the kernel fork on its own in a few minutes and test it on the tablet without building the whole system (with a backup and a restore path). `tools/kernel-romtc-build.sh` builds it with the compiler and tools of the synced Android tree, exactly as the ROM build will.
+- `tools/kernel-cve-check.sh`: the monthly kernel CVE review described under [The kernel](#the-kernel); `tools/kernel_cve_dossier.py` prepares the CVEs it lists for reading (the CNA's text, the oldest stable fix, the matching code of this kernel).
 
 ## Credits
 
 - The [LineageOS](https://lineageos.org) project.
 - The authors of the gta4xl device trees and kernel, above all Tim Zimmermann (Linux4) and Kevin F. Haggerty (haggertk), and LuK1337, Bruno Martins, Andreas Schneider, Michael Bestas and many others.
 - [TheMuppets](https://github.com/TheMuppets) for the proprietary files.
-- [PhoenixKernel](https://github.com/PhoenixKernel), whose eBPF-5.10 backports for 4.14 kernels the kernel fork merges.
-- The maintainers of LineageOS 24.0 for Motorola's Exynos 9610 phones, whose kernel's cgroup freezer and `clone3` work is cherry-picked into the fork, and the maintainers of the Galaxy A21s (Exynos 850), whose 24.0 device-tree changes showed the way for several patches here.
-- The OpenELA project for the 4.14 stable kernels.
+- The LineageOS maintainers of the Exynos 850 kernel (`android_kernel_samsung_exynos850`), the tree the kernel fork is built on, and of the Galaxy A21s, whose 24.0 device-tree changes showed the way for several patches here.
+- The [Civil Infrastructure Platform](https://www.cip-project.org/) for keeping Linux 4.19 maintained, and the kernel CNA for the CVE data.
+- [PhoenixKernel](https://github.com/PhoenixKernel), the maintainers of LineageOS 24.0 for Motorola's Exynos 9610 phones and the OpenELA project, whose work the fork's 4.14 kernel was built on.
 
 ## License
 

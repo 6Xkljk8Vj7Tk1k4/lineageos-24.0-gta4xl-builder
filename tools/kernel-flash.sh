@@ -15,7 +15,9 @@
 #
 # Needs root adb: Developer options -> Rooted debugging (the recovery's adb is root anyway).
 # The tablet must run exactly the build in src/out: the vbmeta computed here carries that build's
-# system/vendor descriptors. Environment: SERIAL (adb serial; default: the only attached device,
+# system/vendor descriptors. The recovery partition keeps the build's own kernel, so a kernel
+# that does not boot leaves the recovery working; a 4.19 kernel that panics in its first two
+# minutes or does not come up restarts into the recovery by itself. Environment: SERIAL (adb serial; default: the only attached device,
 # which must be a gta4xl), SRC (tree with out/, default src).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -139,7 +141,7 @@ check)
     done
     ok "$(a 'dumpsys wifi 2>/dev/null | grep -m1 -oE "Wi-Fi is [a-z]+" | head -1' | tr -d '\r')" "Wi-Fi is enabled" wifi
     echo "wifi: $(a 'dumpsys wifi 2>/dev/null | grep -m1 -oE "Supplicant state: [A-Z]+" | head -1' | tr -d '\r')  bt: $(a settings get global bluetooth_on | tr -d '\r')"
-    echo "dmesg WARNING/BUG/Oops/Call trace (known baseline: 3 WARNING + 3 Call trace = 6): $(a 'dmesg | grep -cE "WARNING: CPU|BUG:|Oops|Call trace"' | tr -d '\r')"
+    echo "dmesg WARNING/BUG/Oops/Call trace (known at every boot: 3 WARNING with their call traces, a96t3x6 device_create_file and rt5665 gpio_to_desc twice): $(a 'dmesg | grep -cE "WARNING: CPU|BUG:|Oops|Call trace"' | tr -d '\r')"
     a 'dmesg | grep -E "WARNING: CPU" | sed "s/.*at //" | sort | uniq -c'
     echo "avc denied: $(a 'dmesg | grep -c "avc: *denied"' | tr -d '\r')   crash: $(a 'logcat -d -b crash | grep -cE "FATAL|signal [0-9]"' | tr -d '\r')"
     a 'logcat -d | grep -wiE "ion|gralloc|mfc|omx" | grep -iE "fail|error|fatal" | grep -v "Unrecognized and/or unsupported format" | head -5'

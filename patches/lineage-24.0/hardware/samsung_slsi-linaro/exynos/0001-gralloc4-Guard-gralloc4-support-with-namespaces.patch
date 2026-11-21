@@ -1,0 +1,29 @@
+From 28149b45504a5aea8187c5339cd10146aea597fa Mon Sep 17 00:00:00 2001
+From: CmdCtrlDevic3 <cmdctrldevic3@proton.me>
+Date: Thu, 19 Nov 2026 19:50:32 +0200
+Subject: [PATCH] gralloc4: Guard gralloc4 support with namespaces
+
+This fixes duplicate/undefined definition errors on devices using gralloc3.
+
+Change-Id: I4ec9cf18c85c95edc0b55467fed82170ac5b2035
+Signed-off-by: CmdCtrlDevic3 <cmdctrldevic3@proton.me>
+---
+
+diff --git a/gralloc/gralloc4/Android.bp b/gralloc/gralloc4/Android.bp
+index 1338685..e2f7fb0 100644
+--- a/gralloc/gralloc4/Android.bp
++++ b/gralloc/gralloc4/Android.bp
+@@ -15,6 +15,13 @@
+  * limitations under the License.
+  */
+ 
++soong_namespace {
++    imports: [
++        "hardware/samsung_slsi-linaro/exynos",
++        "hardware/samsung_slsi-linaro/graphics",
++    ],
++}
++
+ soong_config_module_type {
+     name: "arm_gralloc_cc_defaults",
+     module_type: "cc_defaults",

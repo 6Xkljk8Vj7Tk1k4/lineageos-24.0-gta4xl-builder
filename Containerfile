@@ -1,23 +1,34 @@
-# Build environment for LineageOS 24.0 (Android 17) for the Samsung Galaxy Tab S6 Lite LTE (gta4xl),
-# per the LineageOS build guide.
-FROM ubuntu:20.04
+# Build environment for LineageOS 24.0 (Android 17) for the Samsung Galaxy Tab S6 Lite LTE (gta4xl).
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION}
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# jq: OTA metadata (tools/generate-ota-json.sh); openssl: decrypting the signing keys archive
-RUN apt-get update && apt-get install -y \
+# The package list of the LineageOS build guide (the one for Ubuntu 23.10 and newer), plus what
+# `--no-install-recommends` leaves out and the build or build.sh uses: ca-certificates, patch,
+# xz/zstd/cpio, the process tools on Soong's PATH list, openssl (decrypting the signing keys
+# archive) and jq (update server metadata, tools/generate-ota-json.sh).
+# No JDK: the Android toolchains (clang, rust, JDK, python, make, ninja, the kernel build tools)
+# are prebuilts in the source tree and need only glibc from this image.
+# `dist-upgrade` brings in the fixes released after the base image was built; rebuild the image
+# once a month with `podman build --pull --no-cache`.
+RUN apt-get update && apt-get -y dist-upgrade && apt-get install -y --no-install-recommends \
     bc bison build-essential ccache curl flex g++-multilib gcc-multilib git \
     git-lfs gnupg gperf imagemagick protobuf-compiler python3-protobuf \
     lib32readline-dev lib32z1-dev libdw-dev libelf-dev libgnutls28-dev lz4 \
     libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync \
     schedtool squashfs-tools xsltproc xxd zip zlib1g-dev \
     python3 python-is-python3 wget unzip brotli p7zip-full e2fsprogs \
-    jq openssl \
-    openjdk-17-jdk \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates openssl patch xz-utils zstd cpio file less \
+    psmisc lsof procps bsdextrautils \
+    jq \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN useradd -m -s /bin/bash builder
+# The build runs as "builder" with uid 1000 (the README gives that uid the source and cache
+# folders). Ubuntu images since 23.10 ship a user "ubuntu" with that uid: it goes first.
+RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu; fi && \
+    useradd -m -u 1000 -s /bin/bash builder
 USER builder
 WORKDIR /home/builder/android/lineage
 

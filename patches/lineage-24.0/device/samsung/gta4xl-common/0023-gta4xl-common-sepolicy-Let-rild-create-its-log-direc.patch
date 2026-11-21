@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Sat, 21 Nov 2026 15:03:33 +0100
+Subject: [PATCH] gta4xl-common: sepolicy: Let rild create its log directory
+
+With a SIM in the tablet, Samsung's RIL creates /data/vendor/log/err
+when it starts and is denied at every boot:
+
+  avc: denied { create } for comm="ICR" name="err"
+  scontext=u:r:rild:s0 tcontext=u:object_r:log_vendor_data_file:s0
+  tclass=dir
+
+device/samsung_slsi/sepolicy allows rild rw_dir_perms on directories
+and create_file_perms on files of that type, which covers everything
+but creating a directory.
+
+Co-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>
+---
+ sepolicy/vendor/rild.te | 4 ++++
+ 1 file changed, 4 insertions(+)
+ create mode 100644 sepolicy/vendor/rild.te
+
+diff --git a/sepolicy/vendor/rild.te b/sepolicy/vendor/rild.te
+new file mode 100644
+index 0000000..ae3b4a6
+--- /dev/null
++++ b/sepolicy/vendor/rild.te
+@@ -0,0 +1,4 @@
++# With a SIM in, Samsung's RIL keeps an error log under /data/vendor/log/err and creates that
++# directory when it starts. The common policy lets rild use directories and create files of
++# this type, but not create a directory.
++allow rild log_vendor_data_file:dir create_dir_perms;

@@ -12,10 +12,23 @@ browser renderer can reach from its seccomp + isolated_app sandbox: futex, memor
 with fd passing, epoll/eventfd/pipe, signals/timers, binder, ashmem/memfd). For "sandbox" the
 apply check runs for CNA vectors with high confidentiality/integrity impact or no score yet.
 TRIAGE (tsv: cve, verdict, note) holds earlier decisions; only CVEs not in it are listed on stdout.
+
+KERNEL_BASE in the environment sets the base release of the tree (4.19 for the fork's current
+branch, 4.14 for its archived one), and TRIAGE may name several files separated by commas, a later
+one overriding an earlier one. For 4.19 the first file is the 4.14 branch's: its verdicts
+backported, not-built and not-present describe that tree's code and configuration, so they are
+reported as "recheck" until a later file decides them for this tree. The other verdicts
+(reachability, privilege, impact) carry over.
+OBJDIR must not hold objects of an earlier configuration: they count as compiled.
 """
 import csv, glob, json, os, re, subprocess, sys, time
 
 vulns, kdir, objdir, triage_f, rdir = sys.argv[1:6]
+# Base release of the tree (tools/kernel-cve-check.sh sets it): 4.19, or 4.14 for the archived branch.
+# It sets which CVEs can be present at all ("introduced in <= base") and from when on the
+# history carries stable backport markers.
+BASE = tuple(int(x) for x in os.environ.get('KERNEL_BASE', '4.14').split('.')[:2])
+BASE_SINCE = {(4, 14): '2017-11-01', (4, 19): '2018-10-01'}.get(BASE, '2017-11-01')
 SURFACES = {
     'net': ('net/', 'include/net/', 'include/linux/skbuff.h', 'include/linux/netdevice.h',
             'include/linux/netfilter', 'include/uapi/linux/netfilter', 'drivers/net/ppp/',
@@ -39,7 +52,7 @@ def norm(subj):
     return re.sub(r'^((UPSTREAM|BACKPORT|FROMGIT|FROMLIST|ANDROID|CHROMIUM)[:,] *)+', '', subj.strip()).lower()
 
 # backport markers and subjects in our history (committed after v4.14)
-log = subprocess.run(['git', '-C', kdir, 'log', '--since=2017-11-01', '--format=%s%x01%b%x02'],
+log = subprocess.run(['git', '-C', kdir, 'log', '--since=' + BASE_SINCE, '--format=%s%x01%b%x02'],
                      capture_output=True, text=True, errors='replace').stdout
 up_refs, subjects = set(), set()
 for rec in log.split('\x02'):
@@ -72,10 +85,16 @@ def compiled(f):
     return f in used_headers
 
 triage = {}
-if os.path.exists(triage_f):
-    for r in csv.reader(open(triage_f), delimiter='\t'):
+TREE_BOUND = ('backported', 'not-built', 'not-present')     # verdicts about one tree's code/config
+for n, tf in enumerate(triage_f.split(',')):
+    if not os.path.exists(tf):
+        continue
+    for r in csv.reader(open(tf), delimiter='\t'):
         if r and not r[0].startswith('#') and r[0] != 'cve':
-            triage[r[0]] = (r[1], r[2] if len(r) > 2 else '')
+            verdict, note = r[1], r[2] if len(r) > 2 else ''
+            if n == 0 and BASE != (4, 14) and verdict in TREE_BOUND:
+                verdict, note = 'recheck', '4.14 verdict %s: %s' % (verdict, note)
+            triage[r[0]] = (verdict, note)
 
 os.makedirs(os.path.join(rdir, 'patches'), exist_ok=True)
 stats = dict(cves=0, surface=0, in_414=0, compiled=0, fixed=0, open=0)
@@ -91,13 +110,14 @@ for jf in sorted(glob.glob(os.path.join(vulns, 'cve/published/*/CVE-*.json'))):
                 intro_commits.add(v['version'][:12])
             if v.get('status') == 'unaffected' and v.get('version') == '0' and v.get('lessThan'):
                 intro = v['lessThan']
-    surf = sorted(f for f in files if f.startswith(PREFIXES))
+    # "include/linux/mm" is meant for the memory management headers, not for include/linux/mmc/
+    surf = sorted(f for f in files if f.startswith(PREFIXES) and not f.startswith('include/linux/mmc/'))
     if not surf:
         continue
     stats['surface'] += 1
     iv = ver(intro) if intro else None
     bp_intro = any(c in up_refs for c in intro_commits if not c.startswith('1da177e4c3f4'))
-    if not (iv is None or iv <= (4, 14, 999) or bp_intro):
+    if not (iv is None or iv <= (BASE[0], BASE[1], 999) or bp_intro):
         continue
     stats['in_414'] += 1
     comp = [f for f in surf if compiled(f)]
@@ -152,13 +172,17 @@ with open(os.path.join(rdir, 'report.tsv'), 'w') as o:
     w.writeheader()
     w.writerows(rows)
 
-print('CVE records %(cves)d | network surface %(surface)d | present in 4.14 %(in_414)d | '
-      'compiled %(compiled)d | fixed in our tree %(fixed)d | open %(open)d' % stats)
+print(('CVE records %(cves)d | network surface %(surface)d | present in ' + '%d.%d' % BASE + ' %(in_414)d | '
+       'compiled %(compiled)d | fixed in our tree %(fixed)d | open %(open)d') % stats)
 new = [r for r in rows if r['verdict'] == 'NEW']
 shown = [r for r in new if r['apply']]      # the ones that got an apply check are the relevant ones
 order = lambda r: (r['surface'], r['apply'] != 'clean', not r['cvss'].startswith('AV:N'), r['cve'])
 print('new since the last triage: %d (relevant vector or not yet scored: %d); full list: %s'
       % (len(new), len(shown), os.path.join(rdir, 'report.tsv')))
+recheck = [r for r in rows if r['verdict'] == 'recheck']
+if recheck:
+    print('verdicts of the 4.14 tree to decide again for this one (verdict "recheck" in the list): %d'
+          % len(recheck))
 for r in sorted(shown, key=order):
     print('%-15s %-11s %-22s %-6s %-9s %-34s %s' % (r['cve'], r['surface'], r['cvss'], r['apply'], r['patch_from'],
                                                     r['files'].split(',')[0][:34], r['title'][:80]))

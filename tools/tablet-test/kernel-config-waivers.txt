@@ -1,0 +1,27 @@
+# Kernel options that Android's compatibility matrix asks of a 4.19 kernel (FCM level 7,
+# kernel/configs/t/android-4.19/android-base.config in the Android tree) and this kernel does not
+# have: one option per line, then the reason. tools/tablet-test.sh (test "vintf") fails on a
+# missing option that is not listed here and says so when a line here is no longer needed.
+#
+# Before an option goes on this list, look for its users in the Android tree, not only for the
+# reason to remove it. The PPTP connection tracking helper was on it once: netd attaches it when
+# it enables forwarding for a tethered interface, and without it tethering does not work.
+#
+# Left out on purpose, to keep code that the network can reach out of the kernel:
+CONFIG_IPV6_MIP6                Mobile IPv6 headers are handled for packets from the network; Android never creates the states that need them
+CONFIG_IPV6_VTI                 VTI tunnels; Android's IPsec VPN uses XFRM interfaces
+CONFIG_NET_IPVTI                VTI tunnels (IPv4); Android's IPsec VPN uses XFRM interfaces
+CONFIG_L2TP                     L2TP VPN: a legacy VPN type, gone from Android since version 12
+CONFIG_PPPOL2TP                 L2TP VPN: a legacy VPN type, gone from Android since version 12
+CONFIG_PPTP                     PPTP VPN: a legacy VPN type, gone from Android since version 12
+CONFIG_PPP                      only the legacy VPN types used PPP on this tablet (the modem is not a PPP device)
+CONFIG_PPP_BSDCOMP              goes with PPP
+CONFIG_PPP_DEFLATE              goes with PPP
+CONFIG_PPP_MPPE                 goes with PPP
+CONFIG_NF_CONNTRACK_AMANDA      connection tracking helper; netd attaches only the FTP and the PPTP helper (TetherController::setForwardRules)
+CONFIG_NF_CONNTRACK_H323        connection tracking helper; netd attaches only the FTP and the PPTP helper (TetherController::setForwardRules)
+CONFIG_NF_CONNTRACK_IRC         connection tracking helper; netd attaches only the FTP and the PPTP helper (TetherController::setForwardRules)
+CONFIG_NF_CONNTRACK_NETBIOS_NS  connection tracking helper; netd attaches only the FTP and the PPTP helper (TetherController::setForwardRules)
+CONFIG_NF_CONNTRACK_SANE        connection tracking helper; netd attaches only the FTP and the PPTP helper (TetherController::setForwardRules)
+CONFIG_NF_CONNTRACK_TFTP        connection tracking helper; netd attaches only the FTP and the PPTP helper (TetherController::setForwardRules)
+CONFIG_NF_CT_PROTO_DCCP         CVE-2023-53333 (dccp_packet() reads past its stack buffer for a packet from the network); no DCCP in this kernel, the generic tracker handles such packets

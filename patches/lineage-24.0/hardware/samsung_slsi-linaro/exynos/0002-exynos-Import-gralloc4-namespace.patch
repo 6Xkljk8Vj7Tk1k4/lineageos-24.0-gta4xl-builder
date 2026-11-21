@@ -1,0 +1,23 @@
+From e9816cf6ed8123a2f20ea334641794a0e64b1e7f Mon Sep 17 00:00:00 2001
+From: CmdCtrlDevic3 <cmdctrldevic3@proton.me>
+Date: Thu, 19 Nov 2026 22:06:10 +0200
+Subject: [PATCH] exynos: Import gralloc4 namespace
+
+This fixes undefined module errors on platforms using gralloc4.
+
+Assisted-by: LLM
+Change-Id: I9c49091c5117139aab16a7eab62f54938995416a
+Signed-off-by: CmdCtrlDevic3 <cmdctrldevic3@proton.me>
+---
+
+diff --git a/Android.bp b/Android.bp
+index 9a8cdf3..2dddea5 100644
+--- a/Android.bp
++++ b/Android.bp
+@@ -1,5 +1,6 @@
+ soong_namespace {
+     imports:[
++        "hardware/samsung_slsi-linaro/exynos/gralloc/gralloc4",
+         "hardware/samsung_slsi-linaro/graphics",
+         "hardware/samsung_slsi-linaro/interfaces",
+         "hardware/samsung_slsi-linaro/openmax"

@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: 6Xkljk8Vj7Tk1k4 <6Xkljk8Vj7Tk1k4@users.noreply.github.com>
+Date: Fri, 20 Nov 2026 10:05:45 +0100
+Subject: [PATCH] Settings: Display: switch for sleeping when the cover is
+ closed
+
+Devices with a cover sensor (config_lidControlsSleep) go to sleep when
+the sensor reports the cover closed, and nothing in Settings can turn
+that off. A worn cover or a weak magnet then switches the screen off
+while the tablet is in use.
+
+The framework already reads Settings.Global.LID_BEHAVIOR on every lid
+event (PhoneWindowManager.getLidBehavior(): 1 sleep, 0 nothing), with
+the default taken from config_lidControlsSleep when the settings
+database is created. Show that setting as a switch under Display, only
+on devices whose overlay sets config_lidControlsSleep. Waking up when
+the cover opens is not changed.
+
+The strings are in files of their own so that the patch does not
+depend on the neighbourhood of translated strings.
+---
+ res/values-pl/cover_sleep_strings.xml | 9 +++++++++
+ res/values/cover_sleep_strings.xml    | 9 +++++++++
+ res/xml/display_settings.xml   | 8 ++++++++
+ 3 files changed, 26 insertions(+)
+ create mode 100644 res/values-pl/cover_sleep_strings.xml
+ create mode 100644 res/values/cover_sleep_strings.xml
+
+diff --git a/res/values-pl/cover_sleep_strings.xml b/res/values-pl/cover_sleep_strings.xml
+new file mode 100644
+index 0000000..edae960
+--- /dev/null
++++ b/res/values-pl/cover_sleep_strings.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++     SPDX-License-Identifier: Apache-2.0
++-->
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <!-- Display settings: switch for what closing the cover does -->
++    <string name="lid_sleep_title">Usypiaj po zamknięciu etui</string>
++    <string name="lid_sleep_summary">Wyłącz ekran, gdy czujnik wykryje zamknięcie etui</string>
++</resources>
+diff --git a/res/values/cover_sleep_strings.xml b/res/values/cover_sleep_strings.xml
+new file mode 100644
+index 0000000..edd2841
+--- /dev/null
++++ b/res/values/cover_sleep_strings.xml
+@@ -0,0 +1,9 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!--
++     SPDX-License-Identifier: Apache-2.0
++-->
++<resources xmlns:xliff="urn:oasis:names:tc:xliff:document:1.2">
++    <!-- Display settings: switch for what closing the cover does -->
++    <string name="lid_sleep_title">Sleep when cover is closed</string>
++    <string name="lid_sleep_summary">Turn the screen off when the cover sensor reports that the cover is closed</string>
++</resources>
+diff --git a/res/xml/display_settings.xml b/res/xml/display_settings.xml
+index 65fddf3..e461564 100644
+--- a/res/xml/display_settings.xml
++++ b/res/xml/display_settings.xml
+@@ -268,6 +268,14 @@
+             android:defaultValue="@*android:bool/config_unplugTurnsOnScreen"
+             settings:requiresConfig="@bool/config_show_top_level_battery" />
+ 
++        <!-- Sleep when the cover is closed (Settings.Global.LID_BEHAVIOR: 1 sleep, 0 nothing) -->
++        <lineageos.preference.GlobalSettingSwitchPreference
++            android:key="lid_behavior"
++            android:title="@string/lid_sleep_title"
++            android:summary="@string/lid_sleep_summary"
++            android:defaultValue="@*android:bool/config_lidControlsSleep"
++            settings:requiresConfig="@*android:bool/config_lidControlsSleep" />
++
+         <lineageos.preference.LineageSystemSettingSwitchPreference
+             android:key="high_touch_polling_rate_enable"
+             android:title="@string/high_touch_polling_rate_title"
+-- 
+2.55.0
+
