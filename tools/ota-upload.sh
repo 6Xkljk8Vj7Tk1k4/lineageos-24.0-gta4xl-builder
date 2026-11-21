@@ -6,7 +6,8 @@
 #   OTA_REMOTE=user@host:/srv/ota tools/ota-upload.sh
 #
 # Environment: OTA_REMOTE (required; rsync/ssh target, the folder the web server serves as
-# OTA_BASE_URL), OTA_SSH_PORT (default 22), OUT_DIR (default src/out/target/product/gta4xl/ota).
+# OTA_BASE_URL), OTA_SSH_PORT (default 22), OUT_DIR (default src/out/target/product/gta4xl/ota),
+# OTA_KEEP_OLD=1 (do not delete the older packages from the server).
 # Layout on the server, as the Updater expects it for OTA_BASE_URL:
 #   <remote>/gta4xl/lineage-*.zip (+ .sha256)          the package
 #   <remote>/api/v1/gta4xl/<type>/index.json           the metadata, <type> = unofficial etc.
@@ -20,6 +21,8 @@
 # metadata goes up under a temporary name and becomes index.json (one rename on the server) only
 # after the package has arrived completely. An upload that breaks off leaves the server offering
 # the previous build, and the next run continues the package where the last one stopped.
+# At the end the older packages are deleted from the server: the metadata names only the newest
+# one, so the others are dead weight (a gigabyte each). OTA_KEEP_OLD=1 leaves them.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -72,5 +75,16 @@ rsync -avh --progress --partial-dir=.rsync-partial -e "$RSH" "$OUT_DIR/$FILENAME
 
 # 4. Publish: from this rename on the Updater sees the new build
 ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mv -f '$API_DIR/index.json.new' '$API_DIR/index.json'"
+
+# 5. Only the newest package stays: older ones, their checksums, and what an abandoned upload
+#    left in .rsync-partial/. Nothing else in that directory is touched.
+if [ "${OTA_KEEP_OLD:-0}" != 1 ]; then
+    removed=$(ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "find '$PKG_DIR' -maxdepth 2 -type f \\( -name 'lineage-*.zip' -o -name 'lineage-*.zip.sha256' \\) ! -name '$FILENAME' ! -name '$FILENAME.sha256' -print -delete; rmdir '$PKG_DIR/.rsync-partial' 2>/dev/null; true")
+    if [ -n "$removed" ]; then
+        echo ">>> Removed from the server:"; echo "$removed" | sed 's/^/    /'
+    else
+        echo ">>> No older package on the server."
+    fi
+fi
 
 echo ">>> Done. The Updater asks <OTA_BASE_URL>/api/v1/${DEVICE}/${RELEASE_TYPE}/"

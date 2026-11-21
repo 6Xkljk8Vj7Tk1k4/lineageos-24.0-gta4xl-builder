@@ -274,6 +274,7 @@ Options are passed to step 6 with `-e NAME=value`. An empty value (for example `
 
 With `-e OTA_BASE_URL=https://ota.example.org`, the build points LineageOS's Updater app at your own server and writes the update metadata (`src/out/target/product/gta4xl/ota/gta4xl.json`) next to a copy of the zip.
 `OTA_REMOTE=user@host:/srv/ota tools/ota-upload.sh` uploads both over SSH into the layout the Updater expects (`<OTA_BASE_URL>/api/v1/gta4xl/<type>/` for the metadata, `<OTA_BASE_URL>/gta4xl/` for the zip).
+It asks for the SSH key's passphrase once, sends the zip last, makes the new build visible to the Updater only when the zip is complete, and then deletes the older zips from the server (`OTA_KEEP_OLD=1` keeps them).
 `ota/Caddyfile` and `ota/ota.container` are an example server (a Caddy container for rootless Podman) to put behind a reverse proxy that handles TLS for your domain; the Updater only accepts https.
 
 With `-e OTA_AUTO_INSTALL=true` in addition, the tablet updates itself (`patches/lineage-24.0/packages/apps/Updater`): the Updater checks for a new build when the tablet starts, downloads it on an unmetered network and installs it while the screen is off and the tablet is idle, on the charger or between midnight and 5 a.m.
