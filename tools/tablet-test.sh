@@ -37,7 +37,7 @@ ONLY="$*"
 mkdir -p "$OUT"
 REPORT="$OUT/report.md"
 # Lines that are known and harmless on this build (counted, but not reported as new errors).
-KNOWN='comm="ICR"|dac_override.*comm="irq/[0-9]+-1198000|gpsd.*handle_sgee_aiding_request|RILD.*(Oem OnRequestComplete|OemClient::ProcessBuffer)|GnssUtilsJni.*setSetId|E/ConstraintLayout|WifiBlocklistMonitor|Cannot abort scan|RILD.*(NeedChnNullApn|SecGetFd|FillQosFlowInfo)|RILC.*RIL_GetFd|SST-0.*handlePollStateResult|NRM-I-0.*service not connected|WifiStaIfaceAidlImpl.*getTwtCapabilities|WifiChipAidlImpl.*getMode|wifi-service.*(DFS flag|radio mode change callback|SupportedIfaceCombinations)|E/DhcpClient|SmsApplication.*\(fixing\)|bluetooth.*is not declared|enableSwbNative|keystore2|ConfigCommonOutputCrop|SensorsHub.*Meta event|addFrozenStateChangeCallback|retrieve passpoint|pixel-thermal.*(AIDL Stats service|thermal stats)|WifiStaIfaceAidlImpl.*(stopRssiMonitoring|setDtimMultiplier)|CASS_DEBUG|RILClient|comm="cass"|charger_vendor|AppOps.*attributionTag|pixel-thermal.*cooling device|ImeiPreference|setState is called with an earlier timestamp|updateValue is called with a value|/sys/kernel/dmabuf|prog_dmabufIter|Passpoint|Wiphy index not recorded|trace_pipe|WindowOrganizerController|a96t3x6|gpio_to_desc|Unrecognized and/or unsupported format|audit: rate limit|audit_lost|ConnectivityService is null in handleBindApplication|wifiaware|WifiShellCommand|E/lshal|libbinder.Parcel.*NULL string|GetServerConfigurableFlag|Satellite|DlbDlbEffect|comm="vaultkeeperd"|comm="ESAR"|comm="OCR"|RILD.*(IO channel write error|SehChannelCallback == null|send SSAC info to IMS)|wifi-service.*Unknown iface name|WifiChipAidlImpl.*getUsableChannels|comm="rild".*(default_prop|system_prop)|comm="cbd"|servicemanager.*hal_power_default|OMXNodeInstance.*UnsupportedIndex|Failed to get surface config from BQ|ScreenRecorder.*getUniqueId|RILD.*nlmsg_type|SystemServiceRegistry|mediaprovider_app.*shell_data_file|mali_winsys.*chroma siting|libcsc.*csc_deinit|SensorListener.*not enabled yet|Failed to query component interface|ExynosCameraStreamManagerSec|Codec2-ComponentInterface.*failed config|Binder transaction failure.*BR_(FROZEN|DEAD)_REPLY|FeatureFlagsImplExport|BpTransactionCompletedListener|ConsumerBase.*abandoned'
+KNOWN='dac_override.*comm="irq/[0-9]+-1198000|gpsd.*handle_sgee_aiding_request|RILD.*(Oem OnRequestComplete|OemClient::ProcessBuffer)|GnssUtilsJni.*setSetId|E/ConstraintLayout|WifiBlocklistMonitor|Cannot abort scan|RILD.*(NeedChnNullApn|SecGetFd|FillQosFlowInfo)|RILC.*RIL_GetFd|SST-0.*handlePollStateResult|NRM-I-0.*service not connected|WifiStaIfaceAidlImpl.*getTwtCapabilities|WifiChipAidlImpl.*getMode|wifi-service.*(DFS flag|radio mode change callback|SupportedIfaceCombinations)|E/DhcpClient|SmsApplication.*\(fixing\)|bluetooth.*is not declared|enableSwbNative|keystore2|ConfigCommonOutputCrop|SensorsHub.*Meta event|addFrozenStateChangeCallback|retrieve passpoint|pixel-thermal.*(AIDL Stats service|thermal stats)|WifiStaIfaceAidlImpl.*(stopRssiMonitoring|setDtimMultiplier)|CASS_DEBUG|RILClient|comm="cass"|charger_vendor|AppOps.*attributionTag|pixel-thermal.*cooling device|ImeiPreference|setState is called with an earlier timestamp|updateValue is called with a value|/sys/kernel/dmabuf|prog_dmabufIter|Passpoint|Wiphy index not recorded|trace_pipe|WindowOrganizerController|a96t3x6|gpio_to_desc|Unrecognized and/or unsupported format|audit: rate limit|audit_lost|ConnectivityService is null in handleBindApplication|wifiaware|WifiShellCommand|E/lshal|libbinder.Parcel.*NULL string|GetServerConfigurableFlag|Satellite|DlbDlbEffect|comm="vaultkeeperd"|comm="ESAR"|comm="OCR"|RILD.*(IO channel write error|SehChannelCallback == null|send SSAC info to IMS)|wifi-service.*Unknown iface name|WifiChipAidlImpl.*getUsableChannels|comm="rild".*(default_prop|system_prop)|comm="cbd"|servicemanager.*hal_power_default|OMXNodeInstance.*UnsupportedIndex|Failed to get surface config from BQ|ScreenRecorder.*getUniqueId|RILD.*nlmsg_type|SystemServiceRegistry|mediaprovider_app.*shell_data_file|mali_winsys.*chroma siting|libcsc.*csc_deinit|SensorListener.*not enabled yet|Failed to query component interface|ExynosCameraStreamManagerSec|Codec2-ComponentInterface.*failed config|Binder transaction failure.*BR_(FROZEN|DEAD)_REPLY|FeatureFlagsImplExport|BpTransactionCompletedListener|ConsumerBase.*abandoned'
 
 a() { adb -s "$SERIAL" shell "$@" 2>/dev/null | tr -d '\r'; }
 PASSN=0; FAILN=0; FAILS=""
@@ -491,11 +491,23 @@ t_updater() {
     local uri; uri=$(a getprop lineage.updater.uri); info "lineage.updater.uri=$uri"
     if [ -z "$uri" ]; then info "SKIPPED: no update server in this build (OTA_BASE_URL)"; return; fi
     grep -q '^https://' <<<"$uri" && pass "updater URI is https" || fail "updater URI not https"
+    # A forced stop ("am force-stop", Settings -> Force stop) leaves an app in the stopped state:
+    # its scheduled jobs are cancelled and no broadcast reaches it, BOOT_COMPLETED included, so
+    # there is no update check and no unattended install until somebody opens the app. Read the
+    # state before the app is opened here, which ends it.
+    case "$(a 'dumpsys package org.lineageos.updater' | grep -m1 -oE 'stopped=(true|false)')" in
+        stopped=false) pass "the Updater is not in the stopped state";;
+        stopped=true) fail "the Updater was in the stopped state (after a forced stop): no update check and no unattended install since then; this test opens the app, which ends that state";;
+        *) fail "the Updater's package state could not be read";;
+    esac
     a 'am start -W -n org.lineageos.updater/.UpdatesActivity' >/dev/null; sleep 10
     local l; l=$(a 'logcat -d -s UpdatesActivity:* UpdaterService:* UpdatesCheckReceiver:* Utils:* UpdatesDbHelper:*' | tail -4 | sed -E 's/^[0-9: .-]+ +//' | cut -c1-120 | paste -sd ';')
     info "updater log: $l"
     grep -qiE 'Could not|Failed|IOException|SSL' <<<"$l" && fail "updater reported an error" || pass "updater check-in without error"
-    a 'am force-stop org.lineageos.updater'
+    # Leave through the home screen, never with "am force-stop" (see above).
+    a 'am start -a android.intent.action.MAIN -c android.intent.category.HOME' >/dev/null
+    if a 'dumpsys jobscheduler' | grep -qE '^ *JOB .*UpdatesCheckWorker'; then pass "periodic update check scheduled"
+    else info "no periodic update check scheduled (switched off in the Updater's preferences?)"; fi
 }
 t_packages() {
     info "packages: $(a 'pm list packages | wc -l') total, $(a 'pm list packages -e | wc -l') enabled, $(a 'pm list packages --apex-only | wc -l') APEX"
@@ -758,7 +770,7 @@ t_reboot() {
 cleanup() {
     local f
     for f in $CAM_MADE; do a "content delete --uri content://media/external/file --where \"_display_name='$f'\" >/dev/null 2>&1; rm -f '/sdcard/DCIM/Camera/$f'"; done
-    a 'cmd connectivity airplane-mode disable; svc wifi enable; input keyevent KEYCODE_WAKEUP; svc power stayon false; am force-stop org.lineageos.aperture; am force-stop org.lineageos.glimpse; am force-stop org.lineageos.updater; echo none > /sys/power/pm_test; for c in 1 2 3 4 5 6 7; do echo 1 > /sys/devices/system/cpu/cpu$c/online; done; rm -f /sdcard/Movies/tt_test.mp4 /sdcard/Movies/.tt_write /data/local/tmp/.tt_write /data/local/tmp/tt.png /data/local/tmp/tt.mp4 /data/local/tmp/tt_enctest.dex /data/local/tmp/tt_codec.* /data/local/tmp/tt_pm' >/dev/null
+    a 'cmd connectivity airplane-mode disable; svc wifi enable; input keyevent KEYCODE_WAKEUP; svc power stayon false; am force-stop org.lineageos.aperture; am force-stop org.lineageos.glimpse; echo none > /sys/power/pm_test; for c in 1 2 3 4 5 6 7; do echo 1 > /sys/devices/system/cpu/cpu$c/online; done; rm -f /sdcard/Movies/tt_test.mp4 /sdcard/Movies/.tt_write /data/local/tmp/.tt_write /data/local/tmp/tt.png /data/local/tmp/tt.mp4 /data/local/tmp/tt_enctest.dex /data/local/tmp/tt_codec.* /data/local/tmp/tt_pm' >/dev/null
     [ "$WIFI_WAS_ON" = 1 ] || a 'svc wifi disable'     # as it was
     [ "$LOC_WAS" != false ] || a 'cmd location set-location-enabled false'
     [ -z "$VOL_WAS" ] || a "cmd media_session volume --stream 3 --set $VOL_WAS"
