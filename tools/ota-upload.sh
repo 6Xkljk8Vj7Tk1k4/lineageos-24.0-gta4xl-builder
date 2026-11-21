@@ -11,6 +11,15 @@
 #   <remote>/gta4xl/lineage-*.zip (+ .sha256)          the package
 #   <remote>/api/v1/gta4xl/<type>/index.json           the metadata, <type> = unofficial etc.
 # Needs rsync and ssh.
+#
+# Order: the small files first, the package (by far the largest file) last. Whatever can ask for
+# attention - an unknown host key, a key's passphrase, a wrong path - then happens in the first
+# seconds, and the long transfer needs nobody. All steps share one SSH connection, so the server
+# asks for authentication once.
+# The Updater must never see an entry for a package that is not on the server yet. So the
+# metadata goes up under a temporary name and becomes index.json (one rename on the server) only
+# after the package has arrived completely. An upload that breaks off leaves the server offering
+# the previous build, and the next run continues the package where the last one stopped.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -37,14 +46,31 @@ fi
 
 SSH_TARGET="${REMOTE%%:*}"
 REMOTE_PATH="${REMOTE#*:}"
+PKG_DIR="${REMOTE_PATH}/${DEVICE}"
+API_DIR="${REMOTE_PATH}/api/v1/${DEVICE}/${RELEASE_TYPE}"
 echo ">>> Target: $REMOTE (port $PORT, type: $RELEASE_TYPE, package: $FILENAME)"
 
-# 1. Package + sha256 -> <remote>/<device>/ (before the JSON, so that the Updater never sees an
-#    entry for a file that is not there yet)
-ssh -p "$PORT" "$SSH_TARGET" "mkdir -p '${REMOTE_PATH}/${DEVICE}' '${REMOTE_PATH}/api/v1/${DEVICE}/${RELEASE_TYPE}'"
-rsync -avh --progress -e "ssh -p $PORT" "$OUT_DIR/$FILENAME" "$OUT_DIR/$FILENAME.sha256" "${REMOTE}/${DEVICE}/"
+# One SSH connection for every step: the first command opens it, the others reuse its socket.
+CTL=$(mktemp -d /tmp/ota-upload.XXXXXX)
+SSH_OPTS=(-p "$PORT" -o ControlMaster=auto -o "ControlPath=$CTL/%C" -o ControlPersist=300)
+RSH="ssh ${SSH_OPTS[*]}"
+cleanup() { ssh "${SSH_OPTS[@]}" -O exit "$SSH_TARGET" >/dev/null 2>&1 || true; rm -rf "$CTL"; }
+trap cleanup EXIT
 
-# 2. JSON -> <remote>/api/v1/<device>/<type>/index.json
-rsync -avh -e "ssh -p $PORT" "$JSON_FILE" "${REMOTE}/api/v1/${DEVICE}/${RELEASE_TYPE}/index.json"
+# 1. Directories
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p '$PKG_DIR' '$API_DIR'"
+ssh "${SSH_OPTS[@]}" -O check "$SSH_TARGET" >/dev/null 2>&1 \
+    || echo ">>> WARNING: the SSH connection could not be shared: every step authenticates again, the last one after the package"
+
+# 2. The small files: the checksum, and the metadata under a temporary name
+rsync -avh -e "$RSH" "$OUT_DIR/$FILENAME.sha256" "${SSH_TARGET}:${PKG_DIR}/"
+rsync -avh -e "$RSH" "$JSON_FILE" "${SSH_TARGET}:${API_DIR}/index.json.new"
+
+# 3. The package, last. It appears under its name only when it is complete; what an interrupted
+#    transfer got across stays in .rsync-partial/ and the next run continues from there.
+rsync -avh --progress --partial-dir=.rsync-partial -e "$RSH" "$OUT_DIR/$FILENAME" "${SSH_TARGET}:${PKG_DIR}/"
+
+# 4. Publish: from this rename on the Updater sees the new build
+ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mv -f '$API_DIR/index.json.new' '$API_DIR/index.json'"
 
 echo ">>> Done. The Updater asks <OTA_BASE_URL>/api/v1/${DEVICE}/${RELEASE_TYPE}/"
